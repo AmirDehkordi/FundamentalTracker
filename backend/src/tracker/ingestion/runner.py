@@ -176,17 +176,16 @@ def _upsert_filings(session: Session, rows: list[filings.FilingRow]) -> None:
 
 
 def _replace_filing_chunks(session: Session, rows: list[filings.ChunkRow]) -> None:
-    """Delete existing (accession, item) chunks then insert.
+    """Delete ALL existing chunks for each accession in the batch, then insert.
 
-    A re-ingest yielding FEWER chunks must not leave orphaned high-index rows, which a pure upsert
-    on the (accession, item, chunk_index) natural key would.
+    A re-ingest must not leave orphans — neither a shorter chunk set for the same item nor a changed
+    item SET (e.g. a doc that previously yielded item "7" now degrading to "FULL"). build_filing_
+    chunks emits every chunk for an accession together, so a per-accession wipe is complete.
     """
     if not rows:
         return
-    for accession, item in {(r.accession, r.item) for r in rows}:
-        session.execute(
-            delete(FilingChunk).where(FilingChunk.accession == accession, FilingChunk.item == item)
-        )
+    for accession in {r.accession for r in rows}:
+        session.execute(delete(FilingChunk).where(FilingChunk.accession == accession))
     stmt = _insert(session)(FilingChunk).values([r.model_dump() for r in rows])
     # After the delete there is no conflict; do-nothing only guards a same-batch key repeat.
     stmt = stmt.on_conflict_do_nothing(index_elements=["accession", "item", "chunk_index"])

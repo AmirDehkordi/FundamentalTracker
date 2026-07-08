@@ -333,6 +333,23 @@ def test_replace_filing_chunks_removes_orphans_on_reingest(empty_session: Sessio
     assert all(r.text.startswith("second-") for r in remaining)  # content replaced
 
 
+def test_replace_filing_chunks_removes_stale_item_set(empty_session: Session) -> None:
+    # A re-ingest whose item SET shrinks (e.g. {1A, 7} -> {1A}) must not orphan the dropped item.
+    runner._upsert_company(empty_session, 320193, "AAPL", "Apple Inc.")
+    runner._upsert_filings(empty_session, [_filing_row()])
+    runner._replace_filing_chunks(
+        empty_session, [_chunk_row(0, "risk", item="1A"), _chunk_row(0, "mdna", item="7")]
+    )
+    empty_session.commit()
+    assert {r.item for r in empty_session.execute(select(FilingChunk)).scalars()} == {"1A", "7"}
+
+    runner._replace_filing_chunks(empty_session, [_chunk_row(0, "risk2", item="1A")])
+    empty_session.commit()
+    remaining = empty_session.execute(select(FilingChunk)).scalars().all()
+    assert {r.item for r in remaining} == {"1A"}  # the stale item-7 chunk was wiped
+    assert remaining[0].text == "risk2"
+
+
 def _filings_scope(session: Session) -> Any:
     @contextmanager
     def _scope() -> Iterator[Session]:
