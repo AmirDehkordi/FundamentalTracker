@@ -7,29 +7,46 @@ import os
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from fixtures.mini_seed import seed_minimal
+from fixtures.rich_seed import seed_rich
 from tracker.db.models import Base
 
 
-@pytest.fixture
-def db_session() -> Iterator[Session]:
-    """SQLite in-memory, seeded. StaticPool + one shared connection keeps data alive per test.
-
-    The tsv/GIN DDL is dialect-guarded, so create_all is a no-op for it here; the base filing_chunks
-    table is created normally and mini_seed inserts chunk rows without a tsv value.
-    """
-    engine = create_engine(
+def _sqlite_engine() -> Engine:
+    """A fresh in-memory SQLite engine. StaticPool + one shared connection keeps data alive."""
+    return create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+
+@pytest.fixture
+def db_session() -> Iterator[Session]:
+    """SQLite in-memory, seeded with mini_seed.
+
+    The tsv/GIN DDL is dialect-guarded, so create_all is a no-op for it here; the base filing_chunks
+    table is created normally and mini_seed inserts chunk rows without a tsv value.
+    """
+    engine = _sqlite_engine()
     Base.metadata.create_all(engine)
     with Session(engine) as session:
         seed_minimal(session)
+        yield session
+    engine.dispose()
+
+
+@pytest.fixture
+def rich_session() -> Iterator[Session]:
+    """SQLite in-memory, seeded with rich_seed (FULLCO + EDGECO) for the metric-guard suites."""
+    engine = _sqlite_engine()
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        seed_rich(session)
         yield session
     engine.dispose()
 
