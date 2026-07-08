@@ -36,7 +36,8 @@ jobs:
           enable-cache: true
       - run: uv python install 3.12
       - run: uv sync
-      - run: uv run pytest -m "not integration"
+      # Enforce the coverage gate on every OS. P1 ONLY: 60 (restored to 80 in P4), mirrors the Makefile.
+      - run: uv run pytest -m "not integration" --cov=tracker --cov-report=term-missing --cov-fail-under=60
 
   integration:
     runs-on: ubuntu-latest
@@ -63,7 +64,7 @@ jobs:
           enable-cache: true
       - run: uv python install 3.12
       - run: uv sync
-      - run: uv run pytest --cov=tracker --cov-report=xml --cov-report=term-missing
+      - run: uv run pytest --cov=tracker --cov-report=xml --cov-report=term-missing --cov-fail-under=60
       - uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
