@@ -55,6 +55,28 @@ def test_fetch_gives_up_after_three_attempts(monkeypatch: pytest.MonkeyPatch) ->
         assert route.call_count == 3
 
 
+def test_fetch_retries_on_429_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("tenacity.nap.sleep", lambda _s: None)
+    monkeypatch.setattr(edgar_client.time, "sleep", lambda _s: None)
+    with respx.mock:
+        route = respx.get(_URL).mock(
+            side_effect=[httpx.Response(429), httpx.Response(200, json={"ok": True})]
+        )
+        assert edgar_client.get_json(_URL) == {"ok": True}
+        assert route.call_count == 2  # SEC rate-limit (429) is retried
+
+
+def test_fetch_retries_on_timeout_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("tenacity.nap.sleep", lambda _s: None)
+    monkeypatch.setattr(edgar_client.time, "sleep", lambda _s: None)
+    with respx.mock:
+        route = respx.get(_URL).mock(
+            side_effect=[httpx.ReadTimeout("slow"), httpx.Response(200, json={"ok": True})]
+        )
+        assert edgar_client.get_json(_URL) == {"ok": True}
+        assert route.call_count == 2  # transport/timeout is retried
+
+
 def test_does_not_retry_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(edgar_client.time, "sleep", lambda _s: None)
     with respx.mock:
@@ -62,6 +84,15 @@ def test_does_not_retry_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
         with pytest.raises(httpx.HTTPStatusError):
             edgar_client.get_bytes(_URL)
         assert route.call_count == 1  # 4xx is permanent — no wasted retries
+
+
+def test_sends_sec_user_agent_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(edgar_client.time, "sleep", lambda _s: None)
+    with respx.mock:
+        route = respx.get(_URL).mock(return_value=httpx.Response(200, json={"ok": 1}))
+        edgar_client.get_json(_URL)
+    # SEC bans requests without a descriptive UA — assert it is actually on the wire.
+    assert route.calls.last.request.headers["User-Agent"] == "Test Agent test@example.com (tests)"
 
 
 def test_get_writes_raw_body_to_bronze(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -101,4 +132,7 @@ def test_throttle_spaces_consecutive_requests(monkeypatch: pytest.MonkeyPatch) -
         respx.get(_URL2).mock(return_value=httpx.Response(200, json={"b": 2}))
         edgar_client.get_json(_URL)  # first: no prior request -> no wait
         edgar_client.get_json(_URL2)  # second: back-to-back -> throttle sleeps
-    assert any(s > 0 for s in sleeps)
+    positive = [s for s in sleeps if s > 0]
+    assert positive, "the back-to-back second request must be throttled"
+    # Spacing must approximate the 1/8s ceiling — a wrong (faster) interval would fail this.
+    assert abs(max(positive) - edgar_client._MIN_INTERVAL_S) < 0.02

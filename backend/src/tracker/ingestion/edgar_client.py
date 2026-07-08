@@ -17,7 +17,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from tracker.config import get_settings
 
@@ -76,6 +82,7 @@ def _is_retryable(exc: BaseException) -> bool:
     stop=stop_after_attempt(_MAX_ATTEMPTS),
     wait=wait_exponential(multiplier=0.5, max=8.0),
     retry=retry_if_exception(_is_retryable),
+    before_sleep=before_sleep_log(logger, logging.WARNING),  # retries/backoff are never silent
     reraise=True,
 )
 def _fetch(url: str) -> httpx.Response:
@@ -130,7 +137,10 @@ def get_bytes(url: str) -> bytes:
     response = _fetch(url)
     body = response.content
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(body)
+    # Write-then-rename so a crash mid-write cannot leave a truncated file for --from-cache to read.
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(body)
+    tmp.replace(path)
     _log(url, status=str(response.status_code), cache_hit=False, start=start)
     return body
 
