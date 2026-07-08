@@ -235,3 +235,34 @@ def test_run_xbrl_isolates_a_failing_company(
         select(Fundamental).where(Fundamental.cik == good_cik)
     ).first()
     assert good_rows is not None
+
+
+@pytest.mark.usefixtures("client_env")
+def test_run_xbrl_survives_missing_ticker_and_empty_facts(
+    empty_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    @contextmanager
+    def _scope() -> Iterator[Session]:
+        yield empty_session
+        empty_session.commit()
+
+    monkeypatch.setattr(runner, "session_scope", _scope)
+    monkeypatch.setattr(
+        runner, "get_settings", lambda: SimpleNamespace(universe_tickers=["AAPL", "GHOST"])
+    )
+    # GHOST is absent from company_tickers; AAPL resolves but returns zero annual facts.
+    tickers_body = {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
+    empty_facts = {"cik": 320193, "entityName": "Apple Inc.", "facts": {"us-gaap": {}}}
+    with respx.mock:
+        respx.get(xbrl.TICKERS_URL).mock(return_value=httpx.Response(200, json=tickers_body))
+        respx.get(xbrl.COMPANYFACTS_URL.format(cik=320193)).mock(
+            return_value=httpx.Response(200, json=empty_facts)
+        )
+        summaries = runner.run_xbrl(from_cache=False)
+
+    assert [s.ticker for s in summaries] == ["AAPL"]  # GHOST skipped, run survived
+    summary = summaries[0]
+    assert summary.latest_fy is None
+    assert summary.latest_fy_label == "-"  # degenerate labels render cleanly
+    assert summary.accession_url == "-"
+    assert empty_session.get(Company, 320193) is not None
