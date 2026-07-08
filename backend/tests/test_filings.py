@@ -116,6 +116,29 @@ def test_extract_item_rejects_unsupported_item() -> None:
         filings.extract_item("text", "9Z")
 
 
+def test_extract_item_runs_to_end_when_no_boundary() -> None:
+    # A start heading with no following boundary heading extends to EOF, gracefully.
+    text = "Item 1A. Risk Factors\n" + ("Risk text without any following item heading. " * 60)
+    onea = filings.extract_item(text, "1A")
+    assert onea.startswith("Item 1A") and "Risk text without" in onea
+
+
+def test_build_filing_chunks_keeps_header_when_doc_fetch_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    records = [
+        submissions.RecentFiling("10-K", "acc-1", "d.htm", date(2024, 11, 1), date(2024, 9, 28))
+    ]
+
+    def _boom(_url: str) -> str:
+        raise RuntimeError("doc fetch failed")
+
+    monkeypatch.setattr(filings, "fetch_primary_doc", _boom)
+    filing_rows, chunk_rows = filings.build_filing_chunks(320193, "AAPL", records)
+    assert len(filing_rows) == 1 and filing_rows[0].accession == "acc-1"  # header kept
+    assert chunk_rows == []  # a failed doc yields no chunks, never crashes
+
+
 # --------------------------------------------------------------------------------------------------
 # _extract_items — FULL fallback and single-item selection
 # --------------------------------------------------------------------------------------------------
