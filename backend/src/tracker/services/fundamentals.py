@@ -22,6 +22,7 @@ from tracker.services.fiscal import (
     ReportedFiscalYear,
     format_fy_label,
     latest_reported_fiscal_year,
+    latest_reported_fiscal_year_map,
 )
 from tracker.services.metrics import Metric, MetricUnit
 
@@ -47,6 +48,7 @@ DERIVED_UNITS: dict[str, MetricUnit] = {
     "fcf_margin": "percent",
     "fcf_conversion": "ratio",
     "operating_leverage": "ratio",
+    "revenue_yoy": "percent",
 }
 
 # None-with-reason strings for the metric-lookup paths (shared with services.compare).
@@ -110,6 +112,26 @@ class FundamentalsResult:
     cik: int
     name: str
     rows: list[FyRow]
+
+
+def list_companies(session: Session) -> list[CompanyRef]:
+    """The tracked universe, ascending by ticker, each with its latest reported FY (PLAN §5)."""
+    companies = session.scalars(select(Company).order_by(Company.ticker)).all()
+    latest = latest_reported_fiscal_year_map(session)
+    result: list[CompanyRef] = []
+    for c in companies:
+        fy = latest.get(c.cik)
+        result.append(
+            CompanyRef(
+                cik=c.cik,
+                ticker=c.ticker,
+                name=c.name,
+                latest_fiscal_year=fy.fiscal_year if fy else None,
+                latest_period_end=fy.period_end if fy else None,
+                latest_fy_label=fy.label if fy else None,
+            )
+        )
+    return result
 
 
 def get_company(session: Session, ticker: str) -> CompanyRef | None:
@@ -223,6 +245,11 @@ def compute_metric(
         return metrics.build_operating_leverage(
             _concept_value(facts, "operating_income"), prior_oi, rev, prior_rev
         )
+    if metric_key == "revenue_yoy":
+        # Same basis as the per-FY yoy["revenue"] cell, so compare and the matrix never disagree.
+        prior = index.get(reported.fiscal_year - 1)
+        prior_rev = _concept_value(prior, "revenue") if prior else None
+        return metrics.build_yoy(rev, prior_rev)
     return Metric(value=None, unit=unit, reason=REASON_UNKNOWN_METRIC)
 
 

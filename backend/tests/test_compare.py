@@ -88,6 +88,16 @@ def test_compare_operating_leverage_mixed(rich_session: Session) -> None:
     assert edge.value.value is None and edge.value.reason is None
 
 
+def test_compare_revenue_yoy(rich_session: Session) -> None:
+    result = compare.compare(rich_session, "revenue_yoy")
+    # FY2024->FY2025 revenue growth = 400/350 - 1; same basis as the per-FY fundamentals yoy cell.
+    assert _cell(result, "FULL").value.value == pytest.approx(400 / 350 - 1, rel=1e-9)
+    assert _cell(result, "FULL").value.unit == "percent"
+    # EDGECO skips FY2024, so FY2025 has no prior-year revenue — None, no reason (missing input).
+    edge = _cell(result, "EDGE")
+    assert edge.value.value is None and edge.value.reason is None
+
+
 def test_compare_carries_restatement_provenance(rich_session: Session) -> None:
     rich_session.add(Company(cik=1000009, ticker="SUPS", name="Restated Co."))
     rich_session.add(

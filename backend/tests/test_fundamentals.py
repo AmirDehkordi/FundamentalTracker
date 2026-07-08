@@ -36,6 +36,13 @@ def test_get_company_unknown(rich_session: Session) -> None:
     assert fundamentals.get_company(rich_session, "NOPE") is None
 
 
+def test_list_companies(db_session: Session) -> None:
+    companies = fundamentals.list_companies(db_session)
+    assert [c.ticker for c in companies] == ["AAPL", "NVDA"]  # ascending by ticker
+    assert companies[0].latest_fiscal_year == 2025
+    assert companies[0].latest_fy_label == "FY2025 (ended 2025-09-27)"
+
+
 def test_get_latest_completed_fy_delegates(rich_session: Session) -> None:
     result = fundamentals.get_latest_completed_fy(rich_session, FULLCO_CIK)
     assert result == fiscal.latest_reported_fiscal_year(rich_session, FULLCO_CIK)
@@ -178,3 +185,18 @@ def test_compute_metric_unknown_key(rich_session: Session) -> None:
     assert reported is not None
     cell = fundamentals.compute_metric(rich_session, FULLCO_CIK, "not_a_metric", reported)
     assert cell.value is None and cell.reason == "unknown metric"
+
+
+def test_compute_metric_revenue_yoy(rich_session: Session) -> None:
+    reported = fiscal.latest_reported_fiscal_year(rich_session, FULLCO_CIK)
+    assert reported is not None
+    cell = fundamentals.compute_metric(rich_session, FULLCO_CIK, "revenue_yoy", reported)
+    assert cell.value == pytest.approx(400 / 350 - 1, rel=1e-9)  # FY2024->FY2025
+    assert cell.unit == "percent"
+
+
+def test_compute_metric_revenue_yoy_gap(rich_session: Session) -> None:
+    reported = fiscal.latest_reported_fiscal_year(rich_session, EDGECO_CIK)
+    assert reported is not None  # EDGECO's latest reported FY is 2025
+    cell = fundamentals.compute_metric(rich_session, EDGECO_CIK, "revenue_yoy", reported)
+    assert cell.value is None and cell.reason is None  # FY2024 gap -> prior revenue missing
