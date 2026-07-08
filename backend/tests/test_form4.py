@@ -103,7 +103,9 @@ def test_select_form4_caps_per_company() -> None:
     assert len(form4.select_form4_filings(many, as_of, cap=40)) == 40
 
 
-def test_dedupe_batch_collapses_same_natural_key_last_wins() -> None:
+def test_dedupe_batch_collapses_same_natural_key_last_wins(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     base = form4.InsiderTxn(
         cik=1,
         accession="a",
@@ -118,6 +120,23 @@ def test_dedupe_batch_collapses_same_natural_key_last_wins() -> None:
     dup = base.model_copy(
         update={"price": Decimal("160.000000"), "value": Decimal("160000.000000")}
     )
-    out = form4._dedupe_batch([base, dup])
+    with caplog.at_level(logging.WARNING):
+        out = form4._dedupe_batch([base, dup])
     assert len(out) == 1  # same (accession, name, code, shares, filed) key collapses...
     assert out[0].price == Decimal("160.000000")  # ...and the last row wins
+    assert "collapsing" in caplog.text  # a lossy collapse (different price) is logged loudly
+
+
+def test_dedupe_batch_silent_for_exact_duplicate() -> None:
+    row = form4.InsiderTxn(
+        cik=1,
+        accession="a",
+        filed=date(2024, 7, 10),
+        insider_name="X",
+        role=None,
+        code="S",
+        shares=Decimal("10.0000"),
+        price=Decimal("5.000000"),
+        value=Decimal("50.000000"),
+    )
+    assert len(form4._dedupe_batch([row, row.model_copy()])) == 1  # identical rows: true dedupe

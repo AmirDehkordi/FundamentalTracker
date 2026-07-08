@@ -93,7 +93,11 @@ def _decimal_at(node: Any, tag: str, quant: Decimal) -> Decimal | None:
 
 
 def parse_form4_xml(xml: bytes, cik: int, accession: str, filed: date) -> list[InsiderTxn]:
-    """Parse one Form 4 ownership XML into P/S transactions; malformed XML is warned and skipped."""
+    """Parse one Form 4 ownership XML into P/S transactions; malformed XML is warned and skipped.
+
+    A joint (multi-owner) filing attributes all transactions to the first reportingOwner — the
+    standard document-level reading for this thin slice.
+    """
     try:
         root = etree.fromstring(xml, _PARSER)
     except etree.XMLSyntaxError as exc:  # truncated / entity-laden / otherwise unparseable
@@ -145,12 +149,26 @@ def _dedupe_batch(txns: list[InsiderTxn]) -> list[InsiderTxn]:
     """Collapse rows sharing the (accession, insider_name, code, shares, filed) natural key.
 
     The single ON CONFLICT insert must not target the same row twice ("cannot affect row a second
-    time" on Postgres). Rare: two same-day, same-share lots of one code at different prices collapse
-    to one row — a small net-notional undercount, documented rather than a true dedupe.
+    time" on Postgres). Multi-tranche same-day sales (10b5-1 plans often split an identical share
+    count across prices) DO collide — the frozen key cannot hold both — so a *lossy* collapse (a
+    dropped tranche with a differing price/value) is logged loudly, not silently undercounted.
     """
     deduped: dict[tuple[str, str, str, Decimal, date], InsiderTxn] = {}
     for t in txns:
-        deduped[(t.accession, t.insider_name, t.code, t.shares, t.filed)] = t  # last wins
+        key = (t.accession, t.insider_name, t.code, t.shares, t.filed)
+        prior = deduped.get(key)
+        if prior is not None and (prior.price != t.price or prior.value != t.value):
+            logger.warning(
+                "Form 4 %s: collapsing a same-day %s lot of %s shares for %s "
+                "(price %s superseded by %s); the natural key cannot hold both tranches",
+                t.accession,
+                t.code,
+                t.shares,
+                t.insider_name,
+                prior.price,
+                t.price,
+            )
+        deduped[key] = t  # last wins
     return list(deduped.values())
 
 
