@@ -282,6 +282,9 @@ def run_form4(from_cache: bool = False) -> list[Form4Summary]:
     edgar_client.from_cache = from_cache
     tickers = get_settings().universe_tickers
     ticker_map = xbrl.load_ticker_map(tickers)
+    # The 12-month Form 4 window is wall-clock relative, so a --from-cache replay run on a later day
+    # can drop filings that age out even though their bronze XML is cached (unlike the byte-stable
+    # xbrl/filings replays). The committed seed pins the DB; this only affects a re-run's summary.
     as_of = datetime.now(UTC).date()
 
     summaries: list[Form4Summary] = []

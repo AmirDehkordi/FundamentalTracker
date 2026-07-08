@@ -157,7 +157,9 @@ def _dedupe_batch(txns: list[InsiderTxn]) -> list[InsiderTxn]:
     for t in txns:
         key = (t.accession, t.insider_name, t.code, t.shares, t.filed)
         prior = deduped.get(key)
-        if prior is not None and (prior.price != t.price or prior.value != t.value):
+        # value = shares*price and shares is in the key, so a differing price is the sole signal of
+        # a distinct (lossy) tranche; equal-price rows are true duplicates, collapsed quietly.
+        if prior is not None and prior.price != t.price:
             logger.warning(
                 "Form 4 %s: collapsing a same-day %s lot of %s shares for %s "
                 "(price %s superseded by %s); the natural key cannot hold both tranches",
