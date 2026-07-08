@@ -3,9 +3,8 @@
 .PHONY: help setup db-up db-down init-db ingest ingest-cache run test test-all verify \
         evals seed-dump fresh-check
 
-# P1 ONLY: the coverage gate is relaxed 80 -> 60 while the scaffold has little logic to cover.
-# Restore to 80 in P4 (metrics engine), per CLAUDE.md and PLAN.md §11.
-COV_FAIL_UNDER := 60
+# Coverage gate, per CLAUDE.md. Restored to 80 in P2 now that ingestion carries real logic.
+COV_FAIL_UNDER := 80
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
