@@ -1,7 +1,7 @@
 # Local/macOS developer entrypoints. CI calls the underlying tools directly (see .github/workflows).
 .DEFAULT_GOAL := help
 .PHONY: help setup db-up db-down init-db ingest ingest-cache run test test-all verify \
-        evals seed-dump fresh-check
+        evals seed-dump fresh-check web-setup web-verify
 
 # P1 ONLY: the coverage gate is relaxed 80 -> 60 while the scaffold has little logic to cover.
 # Restore to 80 in P4 (metrics engine), per CLAUDE.md and PLAN.md §11.
@@ -38,12 +38,19 @@ test: ## Unit tests only (no postgres)
 test-all: ## Full suite incl. integration (needs postgres)
 	uv run pytest
 
-verify: ## Format check + lint + types + unit tests with coverage gate
+verify: ## Backend format+lint+types+unit coverage, then the frontend typecheck+build gate
 	uv run ruff format --check .
 	uv run ruff check .
 	uv run mypy backend/src
 	uv run pytest -m "not integration" --cov=tracker --cov-report=term-missing \
 		--cov-fail-under=$(COV_FAIL_UNDER)
+	$(MAKE) web-verify
+
+web-setup: ## Install frontend deps from the lockfile (needs Node 20)
+	cd frontend && npm ci
+
+web-verify: ## Frontend: typecheck + production build (needs Node 20)
+	cd frontend && npm run typecheck && npm run build
 
 evals: ## Run the eval question set against /api/ask (P9 — not yet implemented)
 	uv run python -m evals.runner
