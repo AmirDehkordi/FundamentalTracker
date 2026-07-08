@@ -34,7 +34,10 @@ def test_companies_lists_seeded_universe(db_session: Session) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert [c["ticker"] for c in data] == ["AAPL", "NVDA"]
-    assert data[0]["latest_fiscal_year"] is None  # contract carries it; ingestion fills it
+    # Sidebar FY badge: each company's latest reported FY (Option A basis), labelled per company.
+    assert data[0]["ticker"] == "AAPL"
+    assert data[0]["latest_fiscal_year"] == 2025
+    assert data[0]["latest_fy_label"] == "FY2025 (ended 2025-09-27)"
 
 
 def test_stub_route_returns_501() -> None:

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from tracker.api import schemas
 from tracker.db.models import Company
 from tracker.db.session import get_session
+from tracker.services.fiscal import latest_reported_fiscal_year_map
 
 FRONTEND_ORIGIN = "http://localhost:5173"
 
@@ -67,10 +68,24 @@ def _companies_router() -> APIRouter:
     def list_companies(
         session: Session = Depends(get_session),
     ) -> list[schemas.CompanyOut]:
-        # Tiny inline query for the scaffold. P5 moves this behind services.fundamentals and fills
-        # the latest-FY fields; the CompanyOut contract already carries them, so no unfreeze.
+        # Companies + each one's latest REPORTED fiscal year (PLAN §5), for the sidebar FY badge.
+        # The resolver lives in services.fiscal so the compare service (P5) reuses the same basis.
         rows = session.scalars(select(Company).order_by(Company.ticker)).all()
-        return [schemas.CompanyOut(cik=c.cik, ticker=c.ticker, name=c.name) for c in rows]
+        latest = latest_reported_fiscal_year_map(session)
+        result: list[schemas.CompanyOut] = []
+        for c in rows:
+            fy = latest.get(c.cik)
+            result.append(
+                schemas.CompanyOut(
+                    cik=c.cik,
+                    ticker=c.ticker,
+                    name=c.name,
+                    latest_fiscal_year=fy.fiscal_year if fy else None,
+                    latest_period_end=fy.period_end if fy else None,
+                    latest_fy_label=fy.label if fy else None,
+                )
+            )
+        return result
 
     return router
 
