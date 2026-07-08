@@ -19,13 +19,7 @@ export function ErrorState({
   return (
     <div className={cn("flex flex-col items-start gap-2", className)}>
       <p className="text-13 text-fg-2">{title}.</p>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onRetry}
-        disabled={busy}
-        className="focus-visible:ring-2"
-      >
+      <Button variant="outline" size="sm" onClick={onRetry} disabled={busy}>
         <RefreshCw
           className={cn("size-3.5", busy && "animate-spin")}
           aria-hidden

@@ -55,6 +55,6 @@ export async function apiFetch<T>(
   try {
     return (await res.json()) as T;
   } catch {
-    throw new ApiError(res.status, "Malformed JSON in API response", "parse");
+    throw new ApiError(0, "Malformed JSON in API response", "parse");
   }
 }

@@ -22,7 +22,6 @@ export function QAPanel({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        aria-label="Ask a question"
         className="w-full border-border bg-surface-1 p-0 sm:max-w-[400px]"
       >
         <div className="flex h-full flex-col">

@@ -21,7 +21,7 @@ export function TopBar({ onAskClick }: { onAskClick: () => void }) {
         <span className="text-sm font-semibold tabular-nums text-fg-1">
           {orDash(company?.ticker)}
         </span>
-        <span className="truncate text-13 text-fg-3">
+        <span className="truncate text-13 text-fg-2">
           {orDash(company?.name)}
         </span>
       </div>
@@ -36,23 +36,30 @@ export function TopBar({ onAskClick }: { onAskClick: () => void }) {
         <span className="text-xs uppercase tracking-wide text-fg-3">
           Trailing P/E
         </span>
-        <AsyncBoundary
-          query={valuation}
-          skeleton={<Skeleton className="h-4 w-12" />}
-          errorTitle="Trailing P/E unavailable"
-          notReady={<NotReady />}
-        >
-          {(v) => (
-            <span className="text-sm font-semibold tabular-nums text-fg-1">
-              {formatRatio(v.trailing_pe.value)}
-            </span>
-          )}
-        </AsyncBoundary>
+        {ticker == null ? (
+          // No company selected yet (empty/errored universe) — em dash, never a stuck skeleton.
+          <span className="text-sm font-semibold tabular-nums text-fg-3">
+            {EM_DASH}
+          </span>
+        ) : (
+          <AsyncBoundary
+            query={valuation}
+            skeleton={<Skeleton className="h-4 w-12" />}
+            errorTitle="Trailing P/E unavailable"
+            notReady={<NotReady />}
+          >
+            {(v) => (
+              <span className="text-sm font-semibold tabular-nums text-fg-1">
+                {formatRatio(v.trailing_pe.value)}
+              </span>
+            )}
+          </AsyncBoundary>
+        )}
       </div>
 
       <div className="ml-auto flex items-center gap-4">
         <Freshness className="hidden sm:inline" />
-        <Button size="sm" onClick={onAskClick} className="focus-visible:ring-2">
+        <Button size="sm" onClick={onAskClick}>
           <MessageSquareText className="size-4" aria-hidden />
           Ask
         </Button>

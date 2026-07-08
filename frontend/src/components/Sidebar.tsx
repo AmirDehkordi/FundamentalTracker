@@ -58,7 +58,6 @@ function CompanyList({ companies }: { companies: CompanyOut[] }) {
     <ul
       role="listbox"
       aria-label="Tracked companies"
-      aria-activedescendant={`company-${companies[activeIndex]?.ticker}`}
       onKeyDown={onKeyDown}
       className="flex flex-col gap-0.5 px-2"
     >
@@ -94,7 +93,7 @@ function CompanyList({ companies }: { companies: CompanyOut[] }) {
             >
               {c.ticker}
             </span>
-            <span className="truncate text-xs text-fg-3">{c.name}</span>
+            <span className="truncate text-xs text-fg-2">{c.name}</span>
             <Badge
               variant="outline"
               className="ml-auto shrink-0 border-border font-medium tabular-nums text-fg-3"
