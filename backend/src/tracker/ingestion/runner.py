@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -20,9 +20,9 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from tracker.config import get_settings
-from tracker.db.models import Company, Filing, FilingChunk, Fundamental
+from tracker.db.models import Company, Filing, FilingChunk, Fundamental, InsiderTransaction
 from tracker.db.session import session_scope
-from tracker.ingestion import edgar_client, filings, submissions, xbrl
+from tracker.ingestion import edgar_client, filings, form4, submissions, xbrl
 from tracker.ingestion.xbrl import FundamentalFact
 from tracker.services.fiscal import format_fy_label
 
@@ -238,3 +238,76 @@ def print_filings_summary(summaries: list[FilingSummary]) -> None:
             continue
         for item, fy, count in s.chunk_counts:
             print(f"{s.ticker:<7}{item:<6}{fy:>6}{count:>8}")
+
+
+# --------------------------------------------------------------------------------------------------
+# Form 4 lane (insider transactions)
+# --------------------------------------------------------------------------------------------------
+
+# Natural key = (accession, insider_name, code, shares, filed); refresh only the rest.
+_INSIDER_UPDATE_COLS = ("cik", "role", "price", "value")
+
+
+@dataclass(frozen=True)
+class Form4Summary:
+    """Per-company insider buy/sell counts."""
+
+    ticker: str
+    cik: int
+    buys: int
+    sells: int
+
+
+def _upsert_insiders(session: Session, rows: list[form4.InsiderTxn]) -> None:
+    if not rows:
+        return
+    stmt = _insert(session)(InsiderTransaction).values([r.model_dump() for r in rows])
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["accession", "insider_name", "code", "shares", "filed"],
+        set_={col: getattr(stmt.excluded, col) for col in _INSIDER_UPDATE_COLS},
+    )
+    session.execute(stmt)
+
+
+def _summarize_form4(ticker: str, cik: int, rows: list[form4.InsiderTxn]) -> Form4Summary:
+    return Form4Summary(
+        ticker=ticker,
+        cik=cik,
+        buys=sum(1 for r in rows if r.code == "P"),
+        sells=sum(1 for r in rows if r.code == "S"),
+    )
+
+
+def run_form4(from_cache: bool = False) -> list[Form4Summary]:
+    """Ingest the last 12 months of insider P/S transactions for the universe; return summaries."""
+    edgar_client.from_cache = from_cache
+    tickers = get_settings().universe_tickers
+    ticker_map = xbrl.load_ticker_map(tickers)
+    as_of = datetime.now(UTC).date()
+
+    summaries: list[Form4Summary] = []
+    with session_scope() as session:
+        for ticker in tickers:
+            resolved = ticker_map.get(ticker)
+            if resolved is None:
+                continue  # missing ticker already warned by load_ticker_map
+            cik, name = resolved
+            try:
+                records = submissions.recent_filings(submissions.fetch(cik))
+                txns = form4.build_insider_txns(cik, records, as_of)
+                with session.begin_nested():  # savepoint per company (see run_xbrl)
+                    _upsert_company(session, cik, ticker, name)
+                    _upsert_insiders(session, txns)
+                summaries.append(_summarize_form4(ticker, cik, txns))
+            except Exception:
+                logger.exception("form4 ingest failed for %s (cik=%d); skipping", ticker, cik)
+    return summaries
+
+
+def print_form4_summary(summaries: list[Form4Summary]) -> None:
+    """Print per-company insider buy/sell counts."""
+    header = f"{'TICKER':<7}{'BUYS':>6}{'SELLS':>7}"
+    print(header)
+    print("-" * len(header))
+    for s in sorted(summaries, key=lambda s: s.ticker):
+        print(f"{s.ticker:<7}{s.buys:>6}{s.sells:>7}")

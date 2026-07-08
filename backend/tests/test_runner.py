@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,8 +23,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from tracker.db.models import Base, Company, Filing, FilingChunk, Fundamental
-from tracker.ingestion import edgar_client, filings, runner, submissions, xbrl
+from tracker.db.models import Base, Company, Filing, FilingChunk, Fundamental, InsiderTransaction
+from tracker.ingestion import edgar_client, filings, form4, runner, submissions, xbrl
 from tracker.ingestion.__main__ import main
 from tracker.ingestion.xbrl import FundamentalFact
 
@@ -413,16 +413,132 @@ def test_print_filings_summary_handles_empty_counts(capsys: pytest.CaptureFixtur
     assert "ZZZ" in capsys.readouterr().out  # degenerate row renders cleanly
 
 
-def test_cli_dispatches_filings_and_all(monkeypatch: pytest.MonkeyPatch) -> None:
+# --------------------------------------------------------------------------------------------------
+# Form 4 lane
+# --------------------------------------------------------------------------------------------------
+
+
+def _insider_txn(**overrides: Any) -> form4.InsiderTxn:
+    base = dict(
+        cik=320193,
+        accession="0000320193-24-000070",
+        filed=date(2024, 7, 15),
+        insider_name="COOK TIMOTHY D",
+        role="Chief Executive Officer",
+        code="P",
+        shares=Decimal("1000.0000"),
+        price=Decimal("150.000000"),
+        value=Decimal("150000.000000"),
+    )
+    base.update(overrides)
+    return form4.InsiderTxn(**base)  # type: ignore[arg-type]
+
+
+def test_upsert_insiders_is_idempotent_and_updates_non_key_columns(empty_session: Session) -> None:
+    runner._upsert_company(empty_session, 320193, "AAPL", "Apple Inc.")
+    runner._upsert_insiders(empty_session, [_insider_txn()])
+    runner._upsert_insiders(empty_session, [_insider_txn(role="CEO", value=Decimal("150001.0"))])
+    empty_session.commit()
+    rows = empty_session.execute(select(InsiderTransaction)).scalars().all()
+    assert len(rows) == 1  # same natural key updated in place, not duplicated
+    assert rows[0].role == "CEO"
+
+
+def _recent_form4_submissions() -> str:
+    # A Form 4 filed 5 days ago so it is always inside run_form4's 12-month window.
+    recent = (date.today() - timedelta(days=5)).isoformat()
+    payload = {
+        "cik": 320193,
+        "filings": {
+            "recent": {
+                "form": ["4", "10-K"],
+                "accessionNumber": ["0000320193-24-000070", "0000320193-24-000123"],
+                "primaryDocument": ["xslF345X05/wk-form4.xml", "aapl-20240928.htm"],
+                "filingDate": [recent, "2024-11-01"],
+                "reportDate": ["2024-07-13", "2024-09-28"],
+            }
+        },
+    }
+    return json.dumps(payload)
+
+
+@pytest.mark.usefixtures("client_env")
+def test_run_form4_end_to_end_on_sqlite(
+    empty_session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(runner, "session_scope", _filings_scope(empty_session))
+    monkeypatch.setattr(runner, "get_settings", lambda: SimpleNamespace(universe_tickers=["AAPL"]))
+
+    xml = (Path(__file__).parent / "fixtures" / "form4" / "buy_and_sale.xml").read_bytes()
+    tickers_body = {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
+    with respx.mock:
+        respx.get(xbrl.TICKERS_URL).mock(return_value=httpx.Response(200, json=tickers_body))
+        respx.get(submissions.SUBMISSIONS_URL.format(cik=320193)).mock(
+            return_value=httpx.Response(200, text=_recent_form4_submissions())
+        )
+        respx.get(
+            filings.ARCHIVES_DOC_URL.format(
+                cik=320193, nodash="000032019324000070", doc="wk-form4.xml"
+            )
+        ).mock(return_value=httpx.Response(200, content=xml))
+        summaries = runner.run_form4(from_cache=False)
+
+    assert len(summaries) == 1
+    assert (summaries[0].buys, summaries[0].sells) == (2, 1)  # two P rows, one S row
+
+    rows = empty_session.execute(select(InsiderTransaction)).scalars().all()
+    assert {r.code for r in rows} == {"P", "S"}
+    assert any(r.price is None for r in rows)  # the footnote-only row landed with NULL price
+    assert empty_session.get(Company, 320193) is not None
+
+    runner.print_form4_summary(summaries)
+    assert "AAPL" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("client_env")
+def test_run_form4_survives_a_failing_company(
+    empty_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runner, "session_scope", _filings_scope(empty_session))
+    monkeypatch.setattr(
+        runner, "get_settings", lambda: SimpleNamespace(universe_tickers=["AAPL", "BAD"])
+    )
+    xml = (Path(__file__).parent / "fixtures" / "form4" / "buy_and_sale.xml").read_bytes()
+    tickers_body = {
+        "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+        "1": {"cik_str": 999999, "ticker": "BAD", "title": "Bad Inc."},
+    }
+    with respx.mock:
+        respx.get(xbrl.TICKERS_URL).mock(return_value=httpx.Response(200, json=tickers_body))
+        respx.get(submissions.SUBMISSIONS_URL.format(cik=320193)).mock(
+            return_value=httpx.Response(200, text=_recent_form4_submissions())
+        )
+        respx.get(submissions.SUBMISSIONS_URL.format(cik=999999)).mock(
+            return_value=httpx.Response(500)
+        )
+        respx.get(
+            filings.ARCHIVES_DOC_URL.format(
+                cik=320193, nodash="000032019324000070", doc="wk-form4.xml"
+            )
+        ).mock(return_value=httpx.Response(200, content=xml))
+        summaries = runner.run_form4(from_cache=False)
+
+    assert [s.ticker for s in summaries] == ["AAPL"]  # BAD skipped, run survived
+    assert empty_session.get(Company, 999999) is None
+
+
+def test_cli_dispatches_filings_form4_and_all(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
     monkeypatch.setattr(runner, "run_xbrl", lambda from_cache: calls.append("xbrl") or [])
     monkeypatch.setattr(runner, "print_summary", lambda s: None)
     monkeypatch.setattr(runner, "run_filings", lambda from_cache: calls.append("filings") or [])
     monkeypatch.setattr(runner, "print_filings_summary", lambda s: None)
+    monkeypatch.setattr(runner, "run_form4", lambda from_cache: calls.append("form4") or [])
+    monkeypatch.setattr(runner, "print_form4_summary", lambda s: None)
 
-    assert main(["--sources", "filings"]) == 0
-    assert calls == ["filings"]
+    assert main(["--sources", "form4"]) == 0
+    assert calls == ["form4"]
 
     calls.clear()
     assert main(["--sources", "all"]) == 0
-    assert calls == ["xbrl", "filings"]  # 'all' expands to every available source, in order
+    assert calls == ["xbrl", "filings", "form4"]  # 'all' expands to every source, in order
