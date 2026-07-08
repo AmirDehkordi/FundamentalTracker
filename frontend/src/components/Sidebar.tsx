@@ -132,9 +132,9 @@ export function Sidebar() {
       className="flex h-full w-[232px] shrink-0 flex-col border-r border-border bg-surface-1"
     >
       <div className="flex h-14 shrink-0 items-center px-4">
-        <span className="text-sm font-semibold text-fg-1">
+        <h1 className="text-sm font-semibold text-fg-1">
           Fundamentals Tracker
-        </span>
+        </h1>
       </div>
       <Separator />
       <ScrollArea className="flex-1 py-2">

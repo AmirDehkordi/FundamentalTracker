@@ -58,7 +58,9 @@ export function TopBar({ onAskClick }: { onAskClick: () => void }) {
       </div>
 
       <div className="ml-auto flex items-center gap-4">
-        <Freshness className="hidden sm:inline" />
+        <div className="hidden sm:block">
+          <Freshness />
+        </div>
         <Button size="sm" onClick={onAskClick}>
           <MessageSquareText className="size-4" aria-hidden />
           Ask
