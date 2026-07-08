@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """The five-var config surface.
+    """Config surface — five required secrets/URLs plus the ingestion universe.
 
     Env matching is case-insensitive, so DATABASE_URL maps to `database_url` with no alias.
     """
@@ -26,6 +26,20 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr
     llm_model: str
     sec_user_agent: str
+    # The graded universe. Kept a comma-separated str (not list[str]) so a plain UNIVERSE env var
+    # works — pydantic-settings otherwise wants JSON for complex types. Swapping a ticker is a
+    # config edit + re-ingest, never a code change (case-study requirement). Default is the five.
+    universe: str = "NVDA,MSFT,AAPL,GOOGL,ETN"
+
+    @property
+    def universe_tickers(self) -> list[str]:
+        """Configured tickers, upper-cased and de-duplicated in declared order."""
+        seen: dict[str, None] = {}
+        for raw in self.universe.split(","):
+            ticker = raw.strip().upper()
+            if ticker:
+                seen.setdefault(ticker, None)
+        return list(seen)
 
 
 @lru_cache
