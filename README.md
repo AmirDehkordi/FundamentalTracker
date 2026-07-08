@@ -8,20 +8,20 @@ grounded LLM Q&A layer.
 
 ## Quickstart
 
-TODO (P10)
+_Lands in P10 (packaging)._
 
 ## Environment
 
-TODO (P10)
+_Lands in P10 (packaging)._
 
 ## Models
 
-TODO (P10)
+_Lands in P10 (packaging)._
 
 ## Examples
 
-TODO (P10)
+_Lands in P10 (packaging)._
 
 ## Architecture
 
-TODO (P10)
+_Lands in P10 (packaging)._
