@@ -1,0 +1,22 @@
+# Dev database only. The app service (multi-stage build) lands in P10.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: tracker
+      POSTGRES_DB: tracker
+    ports:
+      - "5433:5432"  # 5433 on the host to avoid clashing with a local Postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracker -d tracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Committed pg_dump auto-restores on first boot (populated in P3).
+      - ./seed/init:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  pgdata:

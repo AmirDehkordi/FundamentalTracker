@@ -1,0 +1,1 @@
+"""Fundamentals Tracker — backend package."""

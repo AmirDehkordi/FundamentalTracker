@@ -1,0 +1,1 @@
+# Committed pg_dump lands here in P3; auto-restored via docker-entrypoint-initdb.d.

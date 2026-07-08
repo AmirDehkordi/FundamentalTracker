@@ -25,7 +25,8 @@ seed/                committed pg_dump (seed/init/) + bronze raw responses (seed
 - SEC etiquette: every EDGAR request sends the SEC_USER_AGENT header, global throttle <= 8 req/s,
   tenacity retries with backoff. Never bypass the shared edgar client.
 - Fiscal policy: every fundamental carries fiscal_year + period_end; anything user-facing labels values as
-  "FY2025 (ended 2025-09-27)"; cross-company "last year" = latest completed FY per company; duplicate
+  "FY2025 (ended 2025-09-27)"; cross-company "last year" = latest reported FY per company (most recent
+  fiscal year that has a filed 10-K, not merely completed); duplicate
   (concept, period) rows resolve latest-filed-wins, provenance (accession, filed) retained.
 - Errors: no silent excepts; ingestion logs and skips bad records, never crashes a whole run; services
   return None-with-reason for undefined metrics (negative EPS P/E etc.) instead of raising.
