@@ -69,6 +69,8 @@ def latest_reported_fiscal_year_map(session: Session) -> dict[int, ReportedFisca
     best: dict[int, ReportedFiscalYear] = {}
     for cik, fiscal_year, period_end in rows:
         current = best.get(cik)
-        if current is None or fiscal_year > current.fiscal_year:
+        # Tie-break on (fiscal_year, period_end) to match latest_reported_fiscal_year's ORDER BY, so
+        # the two resolvers can never diverge if a restatement ever shifts period_end within a FY.
+        if current is None or (fiscal_year, period_end) > (current.fiscal_year, current.period_end):
             best[cik] = ReportedFiscalYear(fiscal_year=fiscal_year, period_end=period_end)
     return best
