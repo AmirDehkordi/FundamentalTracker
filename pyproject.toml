@@ -1,0 +1,93 @@
+[project]
+name = "tracker"
+version = "0.1.0"
+description = "Fundamentals Tracker — SEC-filing fundamentals + market data with a grounded LLM Q&A layer"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]",
+    "pydantic>=2",
+    "pydantic-settings",
+    "httpx",
+    "tenacity",
+    "beautifulsoup4",
+    "lxml",
+    "yfinance",
+    "openai",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "respx",
+    "ruff",
+    "mypy",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/src/tracker"]
+
+# ----------------------------------------------------------------------------
+# ruff — format + lint, line length 100
+# ----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+src = ["backend/src", "scripts", "backend/tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "A"]
+# A003: SQLAlchemy columns `id` / `open` shadow builtins — a natural-key / OHLC
+# necessity, not a bug. Cannot rename `id` PKs; `open` is mapped as attr `open_`.
+ignore = ["A003"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's `Depends(...)` in a parameter default is the framework idiom, not a bug (B008).
+extend-immutable-calls = ["fastapi.Depends"]
+
+[tool.ruff.lint.per-file-ignores]
+# The `text` column name shadows a builtin type name; intentional per the frozen schema.
+"backend/src/tracker/db/models.py" = ["A003"]
+
+# ----------------------------------------------------------------------------
+# mypy — strict-ish on src
+# ----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+files = ["backend/src"]
+disallow_untyped_defs = true
+warn_return_any = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# yfinance ships no type stubs.
+module = ["yfinance.*"]
+ignore_missing_imports = true
+
+# ----------------------------------------------------------------------------
+# pytest
+# ----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend/tests"]
+markers = [
+    "integration: needs postgres",
+]
+addopts = "-q"
+
+# ----------------------------------------------------------------------------
+# coverage
+# ----------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["tracker"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
