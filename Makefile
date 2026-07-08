@@ -47,8 +47,8 @@ verify: ## Format check + lint + types + unit tests with coverage gate
 evals: ## Run the eval question set against /api/ask (P9 — not yet implemented)
 	uv run python -m evals.runner
 
-seed-dump: ## Dump the current DB to seed/init (P3 — not yet implemented)
-	@echo "seed-dump lands in P3"
+seed-dump: ## Dump the dev DB to seed/init/01_seed.sql.gz (auto-restored on a fresh clone)
+	bash scripts/make_seed.sh
 
 fresh-check: ## Fresh-clone rehearsal (P10 — not yet implemented)
 	@echo "fresh-check lands in P10"
