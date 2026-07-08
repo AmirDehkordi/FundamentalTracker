@@ -23,12 +23,14 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from tracker.db.models import Base, Company, Fundamental
-from tracker.ingestion import edgar_client, runner, xbrl
+from tracker.db.models import Base, Company, Filing, FilingChunk, Fundamental
+from tracker.ingestion import edgar_client, filings, runner, submissions, xbrl
 from tracker.ingestion.__main__ import main
 from tracker.ingestion.xbrl import FundamentalFact
 
 _DERIVATIONS = Path(__file__).parent / "fixtures" / "companyfacts" / "derivations.json"
+_TENK_HTML = (Path(__file__).parent / "fixtures" / "tenk" / "toc_and_sections.html").read_text()
+_AAPL_SUBMISSIONS = (Path(__file__).parent / "fixtures" / "submissions" / "aapl.json").read_text()
 
 _BASE_FACT = FundamentalFact(
     cik=320193,
@@ -266,3 +268,161 @@ def test_run_xbrl_survives_missing_ticker_and_empty_facts(
     assert summary.latest_fy_label == "-"  # degenerate labels render cleanly
     assert summary.accession_url == "-"
     assert empty_session.get(Company, 320193) is not None
+
+
+# --------------------------------------------------------------------------------------------------
+# Filings lane
+# --------------------------------------------------------------------------------------------------
+
+
+def _filing_row(**overrides: Any) -> filings.FilingRow:
+    base = dict(
+        accession="0000320193-24-000123",
+        cik=320193,
+        form="10-K",
+        fiscal_year=2024,
+        period_end=date(2024, 9, 28),
+        filed=date(2024, 11, 1),
+        primary_doc_url="https://example.test/doc.htm",
+    )
+    base.update(overrides)
+    return filings.FilingRow(**base)  # type: ignore[arg-type]
+
+
+def _chunk_row(index: int, text: str, item: str = "1A") -> filings.ChunkRow:
+    return filings.ChunkRow(
+        accession="0000320193-24-000123",
+        cik=320193,
+        item=item,
+        fiscal_year=2024,
+        chunk_index=index,
+        text=text,
+    )
+
+
+def test_upsert_filings_is_idempotent_and_updates_in_place(empty_session: Session) -> None:
+    runner._upsert_company(empty_session, 320193, "AAPL", "Apple Inc.")
+    runner._upsert_filings(empty_session, [_filing_row()])
+    runner._upsert_filings(empty_session, [_filing_row(primary_doc_url="https://example.test/v2")])
+    empty_session.commit()
+    rows = empty_session.execute(select(Filing)).scalars().all()
+    assert len(rows) == 1  # same accession PK updated, not duplicated
+    assert rows[0].primary_doc_url == "https://example.test/v2"
+
+
+def test_replace_filing_chunks_removes_orphans_on_reingest(empty_session: Session) -> None:
+    # A re-ingest yielding FEWER chunks must not leave orphaned high-index rows.
+    runner._upsert_company(empty_session, 320193, "AAPL", "Apple Inc.")
+    runner._upsert_filings(empty_session, [_filing_row()])
+    runner._replace_filing_chunks(empty_session, [_chunk_row(i, f"first-{i}") for i in range(3)])
+    empty_session.commit()
+    assert len(empty_session.execute(select(FilingChunk)).scalars().all()) == 3
+
+    runner._replace_filing_chunks(empty_session, [_chunk_row(i, f"second-{i}") for i in range(2)])
+    empty_session.commit()
+    remaining = empty_session.execute(select(FilingChunk)).scalars().all()
+    assert {r.chunk_index for r in remaining} == {0, 1}  # index 2 orphan deleted
+    assert all(r.text.startswith("second-") for r in remaining)  # content replaced
+
+
+def _filings_scope(session: Session) -> Any:
+    @contextmanager
+    def _scope() -> Iterator[Session]:
+        yield session
+        session.commit()
+
+    return _scope
+
+
+@pytest.mark.usefixtures("client_env")
+def test_run_filings_end_to_end_on_sqlite(
+    empty_session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(runner, "session_scope", _filings_scope(empty_session))
+    monkeypatch.setattr(runner, "get_settings", lambda: SimpleNamespace(universe_tickers=["AAPL"]))
+
+    tickers_body = {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
+    with respx.mock:
+        respx.get(xbrl.TICKERS_URL).mock(return_value=httpx.Response(200, json=tickers_body))
+        respx.get(submissions.SUBMISSIONS_URL.format(cik=320193)).mock(
+            return_value=httpx.Response(200, text=_AAPL_SUBMISSIONS)
+        )
+        for nodash, doc in (
+            ("000032019324000123", "aapl-20240928.htm"),
+            ("000032019323000106", "aapl-20230930.htm"),
+        ):
+            respx.get(filings.ARCHIVES_DOC_URL.format(cik=320193, nodash=nodash, doc=doc)).mock(
+                return_value=httpx.Response(200, text=_TENK_HTML)
+            )
+        summaries = runner.run_filings(from_cache=False)
+
+    assert len(summaries) == 1
+    s = summaries[0]
+    assert s.ticker == "AAPL"
+    assert {item for item, _fy, _c in s.chunk_counts} == {"1A", "7"}  # both sections extracted
+    assert {fy for _i, fy, _c in s.chunk_counts} == {2023, 2024}  # both 10-Ks
+
+    filing_rows = empty_session.execute(select(Filing)).scalars().all()
+    assert {f.accession for f in filing_rows} == {"0000320193-24-000123", "0000320193-23-000106"}
+    chunk_rows = empty_session.execute(select(FilingChunk)).scalars().all()
+    assert chunk_rows and all(c.item in {"1A", "7"} for c in chunk_rows)
+    assert empty_session.get(Company, 320193) is not None
+
+    runner.print_filings_summary(summaries)
+    assert "AAPL" in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("client_env")
+def test_run_filings_survives_a_failing_company(
+    empty_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A company whose submissions 404s is skipped; the healthy company still ingests.
+    good_cik, bad_cik = 320193, 999999
+    monkeypatch.setattr(runner, "session_scope", _filings_scope(empty_session))
+    monkeypatch.setattr(
+        runner, "get_settings", lambda: SimpleNamespace(universe_tickers=["AAPL", "BAD"])
+    )
+
+    tickers_body = {
+        "0": {"cik_str": good_cik, "ticker": "AAPL", "title": "Apple Inc."},
+        "1": {"cik_str": bad_cik, "ticker": "BAD", "title": "Bad Inc."},
+    }
+    with respx.mock:
+        respx.get(xbrl.TICKERS_URL).mock(return_value=httpx.Response(200, json=tickers_body))
+        respx.get(submissions.SUBMISSIONS_URL.format(cik=good_cik)).mock(
+            return_value=httpx.Response(200, text=_AAPL_SUBMISSIONS)
+        )
+        respx.get(submissions.SUBMISSIONS_URL.format(cik=bad_cik)).mock(
+            return_value=httpx.Response(404)
+        )
+        for nodash, doc in (
+            ("000032019324000123", "aapl-20240928.htm"),
+            ("000032019323000106", "aapl-20230930.htm"),
+        ):
+            respx.get(filings.ARCHIVES_DOC_URL.format(cik=good_cik, nodash=nodash, doc=doc)).mock(
+                return_value=httpx.Response(200, text=_TENK_HTML)
+            )
+        summaries = runner.run_filings(from_cache=False)
+
+    assert [s.ticker for s in summaries] == ["AAPL"]  # BAD skipped, run survived
+    assert empty_session.get(Company, bad_cik) is None
+
+
+def test_print_filings_summary_handles_empty_counts(capsys: pytest.CaptureFixture[str]) -> None:
+    runner.print_filings_summary([runner.FilingSummary(ticker="ZZZ", cik=1, chunk_counts=())])
+    assert "ZZZ" in capsys.readouterr().out  # degenerate row renders cleanly
+
+
+def test_cli_dispatches_filings_and_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(runner, "run_xbrl", lambda from_cache: calls.append("xbrl") or [])
+    monkeypatch.setattr(runner, "print_summary", lambda s: None)
+    monkeypatch.setattr(runner, "run_filings", lambda from_cache: calls.append("filings") or [])
+    monkeypatch.setattr(runner, "print_filings_summary", lambda s: None)
+
+    assert main(["--sources", "filings"]) == 0
+    assert calls == ["filings"]
+
+    calls.clear()
+    assert main(["--sources", "all"]) == 0
+    assert calls == ["xbrl", "filings"]  # 'all' expands to every available source, in order

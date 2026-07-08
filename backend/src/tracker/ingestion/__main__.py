@@ -1,4 +1,4 @@
-"""Ingestion CLI: `python -m tracker.ingestion --sources xbrl [--from-cache]`."""
+"""Ingestion CLI: `python -m tracker.ingestion --sources all|xbrl|filings [--from-cache]`."""
 
 from __future__ import annotations
 
@@ -7,7 +7,9 @@ import logging
 
 from tracker.ingestion import runner
 
-_AVAILABLE_SOURCES = {"xbrl"}  # narratives/prices land in P3
+# Dispatch order matters: xbrl upserts companies + fundamentals that later lanes reference/label.
+_AVAILABLE_SOURCES = ("xbrl", "filings")
+_ALL = "all"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -15,7 +17,9 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m tracker.ingestion", description="Ingest SEC EDGAR data into the tracker DB."
     )
     parser.add_argument(
-        "--sources", default="xbrl", help="comma-separated sources (only 'xbrl' in P2)"
+        "--sources",
+        default="all",
+        help=f"comma-separated sources, or 'all' ({', '.join(_AVAILABLE_SOURCES)})",
     )
     parser.add_argument(
         "--from-cache", action="store_true", help="replay from seed/bronze offline, no network"
@@ -25,12 +29,16 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     sources = {s.strip() for s in args.sources.split(",") if s.strip()}
-    unknown = sources - _AVAILABLE_SOURCES
+    if _ALL in sources:
+        sources = set(_AVAILABLE_SOURCES)
+    unknown = sources - set(_AVAILABLE_SOURCES)
     if unknown:
         parser.error(f"unknown sources {sorted(unknown)}; available: {sorted(_AVAILABLE_SOURCES)}")
 
     if "xbrl" in sources:
         runner.print_summary(runner.run_xbrl(from_cache=args.from_cache))
+    if "filings" in sources:
+        runner.print_filings_summary(runner.run_filings(from_cache=args.from_cache))
     return 0
 
 

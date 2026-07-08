@@ -14,14 +14,15 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from tracker.config import get_settings
-from tracker.db.models import Company, Fundamental
+from tracker.db.models import Company, Filing, FilingChunk, Fundamental
 from tracker.db.session import session_scope
-from tracker.ingestion import edgar_client, xbrl
+from tracker.ingestion import edgar_client, filings, submissions, xbrl
 from tracker.ingestion.xbrl import FundamentalFact
 from tracker.services.fiscal import format_fy_label
 
@@ -145,3 +146,95 @@ def print_summary(summaries: list[CompanySummary]) -> None:
             f"{s.ticker:<7}{s.fiscal_years:>4}  {s.latest_fy_label:<26}"
             f"{revenue:>20}  {s.accession_url}"
         )
+
+
+# --------------------------------------------------------------------------------------------------
+# Filings lane (10-K narrative chunks)
+# --------------------------------------------------------------------------------------------------
+
+_FILING_UPDATE_COLS = ("cik", "form", "fiscal_year", "period_end", "filed", "primary_doc_url")
+
+
+@dataclass(frozen=True)
+class FilingSummary:
+    """Per-company chunk counts by (item, fiscal_year) so a reviewer can eyeball coverage."""
+
+    ticker: str
+    cik: int
+    chunk_counts: tuple[tuple[str, int, int], ...]  # sorted (item, fiscal_year, count)
+
+
+def _upsert_filings(session: Session, rows: list[filings.FilingRow]) -> None:
+    if not rows:
+        return
+    stmt = _insert(session)(Filing).values([r.model_dump() for r in rows])
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["accession"],
+        set_={col: getattr(stmt.excluded, col) for col in _FILING_UPDATE_COLS},
+    )
+    session.execute(stmt)
+
+
+def _replace_filing_chunks(session: Session, rows: list[filings.ChunkRow]) -> None:
+    """Delete existing (accession, item) chunks then insert.
+
+    A re-ingest yielding FEWER chunks must not leave orphaned high-index rows, which a pure upsert
+    on the (accession, item, chunk_index) natural key would.
+    """
+    if not rows:
+        return
+    for accession, item in {(r.accession, r.item) for r in rows}:
+        session.execute(
+            delete(FilingChunk).where(FilingChunk.accession == accession, FilingChunk.item == item)
+        )
+    stmt = _insert(session)(FilingChunk).values([r.model_dump() for r in rows])
+    # After the delete there is no conflict; do-nothing only guards a same-batch key repeat.
+    stmt = stmt.on_conflict_do_nothing(index_elements=["accession", "item", "chunk_index"])
+    session.execute(stmt)
+
+
+def _summarize_filings(ticker: str, cik: int, rows: list[filings.ChunkRow]) -> FilingSummary:
+    counts: dict[tuple[str, int], int] = {}
+    for r in rows:
+        counts[(r.item, r.fiscal_year)] = counts.get((r.item, r.fiscal_year), 0) + 1
+    ordered = tuple(sorted((item, fy, c) for (item, fy), c in counts.items()))
+    return FilingSummary(ticker=ticker, cik=cik, chunk_counts=ordered)
+
+
+def run_filings(from_cache: bool = False) -> list[FilingSummary]:
+    """Ingest the two most recent 10-Ks' Item 1A/7 chunks for the universe; return summaries."""
+    edgar_client.from_cache = from_cache
+    tickers = get_settings().universe_tickers
+    ticker_map = xbrl.load_ticker_map(tickers)
+
+    summaries: list[FilingSummary] = []
+    with session_scope() as session:
+        for ticker in tickers:
+            resolved = ticker_map.get(ticker)
+            if resolved is None:
+                continue  # missing ticker already warned by load_ticker_map
+            cik, name = resolved
+            try:
+                records = submissions.recent_filings(submissions.fetch(cik))
+                filing_rows, chunk_rows = filings.build_filing_chunks(cik, ticker, records)
+                with session.begin_nested():  # savepoint per company (see run_xbrl)
+                    _upsert_company(session, cik, ticker, name)
+                    _upsert_filings(session, filing_rows)  # parent rows before chunks (FK)
+                    _replace_filing_chunks(session, chunk_rows)
+                summaries.append(_summarize_filings(ticker, cik, chunk_rows))
+            except Exception:
+                logger.exception("filings ingest failed for %s (cik=%d); skipping", ticker, cik)
+    return summaries
+
+
+def print_filings_summary(summaries: list[FilingSummary]) -> None:
+    """Print chunk counts per (ticker, item, fiscal_year)."""
+    header = f"{'TICKER':<7}{'ITEM':<6}{'FY':>6}{'CHUNKS':>8}"
+    print(header)
+    print("-" * len(header))
+    for s in sorted(summaries, key=lambda s: s.ticker):
+        if not s.chunk_counts:
+            print(f"{s.ticker:<7}{'-':<6}{'-':>6}{'0':>8}")
+            continue
+        for item, fy, count in s.chunk_counts:
+            print(f"{s.ticker:<7}{item:<6}{fy:>6}{count:>8}")
