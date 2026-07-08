@@ -44,6 +44,14 @@ def test_universe_tickers_parses_normalises_and_dedupes() -> None:
     assert _settings(universe=" aapl, nvda ,,aapl,").universe_tickers == ["AAPL", "NVDA"]
 
 
+def test_blank_sec_user_agent_is_rejected() -> None:
+    # SEC bans requests with a blank UA; the misconfig must fail fast at settings load, not live.
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        _settings(sec_user_agent="")
+
+
 def _set_env(monkeypatch: pytest.MonkeyPatch, database_url: str) -> None:
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("LLM_BASE_URL", "http://example.test/v1")
