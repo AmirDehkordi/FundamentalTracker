@@ -1,4 +1,4 @@
-"""Ingestion CLI: `python -m tracker.ingestion --sources all|xbrl|filings|form4 [--from-cache]`."""
+"""Ingestion CLI: `python -m tracker.ingestion --sources all|xbrl|filings|form4|prices`."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import logging
 from tracker.ingestion import runner
 
 # Dispatch order matters: xbrl upserts companies + fundamentals that later lanes reference/label.
-_AVAILABLE_SOURCES = ("xbrl", "filings", "form4")
+_AVAILABLE_SOURCES = ("xbrl", "filings", "form4", "prices")
 _ALL = "all"
 
 
@@ -41,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
         runner.print_filings_summary(runner.run_filings(from_cache=args.from_cache))
     if "form4" in sources:
         runner.print_form4_summary(runner.run_form4(from_cache=args.from_cache))
+    if "prices" in sources:
+        runner.print_prices_summary(runner.run_prices(from_cache=args.from_cache))
     return 0
 
 

@@ -23,8 +23,16 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from tracker.db.models import Base, Company, Filing, FilingChunk, Fundamental, InsiderTransaction
-from tracker.ingestion import edgar_client, filings, form4, runner, submissions, xbrl
+from tracker.db.models import (
+    Base,
+    Company,
+    Filing,
+    FilingChunk,
+    Fundamental,
+    InsiderTransaction,
+    Price,
+)
+from tracker.ingestion import edgar_client, filings, form4, prices, runner, submissions, xbrl
 from tracker.ingestion.__main__ import main
 from tracker.ingestion.xbrl import FundamentalFact
 
@@ -527,18 +535,108 @@ def test_run_form4_survives_a_failing_company(
     assert empty_session.get(Company, 999999) is None
 
 
-def test_cli_dispatches_filings_form4_and_all(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(runner, "run_xbrl", lambda from_cache: calls.append("xbrl") or [])
-    monkeypatch.setattr(runner, "print_summary", lambda s: None)
-    monkeypatch.setattr(runner, "run_filings", lambda from_cache: calls.append("filings") or [])
-    monkeypatch.setattr(runner, "print_filings_summary", lambda s: None)
-    monkeypatch.setattr(runner, "run_form4", lambda from_cache: calls.append("form4") or [])
-    monkeypatch.setattr(runner, "print_form4_summary", lambda s: None)
+def _price_row(**overrides: Any) -> prices.PriceRow:
+    base = dict(
+        cik=320193,
+        date=date(2024, 7, 8),
+        open_=Decimal("150.000000"),
+        high=Decimal("152.000000"),
+        low=Decimal("149.000000"),
+        close=Decimal("151.500000"),
+        volume=1_000_000,
+        source="yfinance",
+    )
+    base.update(overrides)
+    return prices.PriceRow(**base)  # type: ignore[arg-type]
 
-    assert main(["--sources", "form4"]) == 0
-    assert calls == ["form4"]
+
+def test_upsert_prices_idempotent_and_flips_source(empty_session: Session) -> None:
+    runner._upsert_company(empty_session, 320193, "AAPL", "Apple Inc.")
+    runner._upsert_prices(empty_session, [_price_row()])
+    runner._upsert_prices(empty_session, [_price_row(source="stooq", close=Decimal("151.600000"))])
+    empty_session.commit()
+    rows = empty_session.execute(select(Price)).scalars().all()
+    assert len(rows) == 1  # same (cik, date) natural key updated in place
+    assert rows[0].source == "stooq" and rows[0].close == Decimal("151.600000")
+
+
+@pytest.mark.usefixtures("client_env")
+def test_run_prices_end_to_end_on_sqlite(
+    empty_session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(runner, "session_scope", _filings_scope(empty_session))
+    monkeypatch.setattr(runner, "get_settings", lambda: SimpleNamespace(universe_tickers=["AAPL"]))
+    # Stub the provider fetch so no yfinance/network is touched; exercise the upsert + summary.
+    monkeypatch.setattr(
+        runner.prices, "fetch_prices", lambda cik, ticker, from_cache: [_price_row()]
+    )
+
+    tickers_body = {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
+    with respx.mock:
+        respx.get(xbrl.TICKERS_URL).mock(return_value=httpx.Response(200, json=tickers_body))
+        summaries = runner.run_prices(from_cache=False)
+
+    assert len(summaries) == 1
+    assert summaries[0].rows == 1 and summaries[0].source == "yfinance"
+    rows = empty_session.execute(select(Price)).scalars().all()
+    assert len(rows) == 1
+    # Cross-dialect scale: the quantized Decimal round-trips identically on SQLite.
+    assert rows[0].open_ == Decimal("150.000000") and rows[0].close == Decimal("151.500000")
+    assert empty_session.get(Company, 320193) is not None
+
+    runner.print_prices_summary(summaries)
+    assert "AAPL" in capsys.readouterr().out
+
+
+def test_summarize_prices_reports_source_or_mixed() -> None:
+    assert runner._summarize_prices("AAPL", 1, []).source == "-"
+    assert runner._summarize_prices("AAPL", 1, [_price_row()]).source == "yfinance"
+    mixed = [_price_row(), _price_row(date=date(2024, 7, 9), source="stooq")]
+    assert runner._summarize_prices("AAPL", 1, mixed).source == "mixed"
+
+
+@pytest.mark.usefixtures("client_env")
+def test_run_prices_survives_a_failing_company(
+    empty_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runner, "session_scope", _filings_scope(empty_session))
+    monkeypatch.setattr(
+        runner, "get_settings", lambda: SimpleNamespace(universe_tickers=["AAPL", "BAD"])
+    )
+
+    def _fetch(cik: int, ticker: str, from_cache: bool) -> list[prices.PriceRow]:
+        if ticker == "BAD":
+            raise RuntimeError("provider exploded")
+        return [_price_row()]
+
+    monkeypatch.setattr(runner.prices, "fetch_prices", _fetch)
+    tickers_body = {
+        "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+        "1": {"cik_str": 999999, "ticker": "BAD", "title": "Bad Inc."},
+    }
+    with respx.mock:
+        respx.get(xbrl.TICKERS_URL).mock(return_value=httpx.Response(200, json=tickers_body))
+        summaries = runner.run_prices(from_cache=False)
+
+    assert [s.ticker for s in summaries] == ["AAPL"]  # BAD skipped, run survived
+    assert empty_session.get(Company, 999999) is None
+
+
+def test_cli_dispatches_all_sources_in_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    for name in ("xbrl", "filings", "form4", "prices"):
+        monkeypatch.setattr(runner, f"run_{name}", lambda from_cache, n=name: calls.append(n) or [])
+    for name in ("summary", "filings_summary", "form4_summary", "prices_summary"):
+        monkeypatch.setattr(runner, f"print_{name}", lambda s: None)
+
+    assert main(["--sources", "prices"]) == 0
+    assert calls == ["prices"]
 
     calls.clear()
     assert main(["--sources", "all"]) == 0
-    assert calls == ["xbrl", "filings", "form4"]  # 'all' expands to every source, in order
+    assert calls == [
+        "xbrl",
+        "filings",
+        "form4",
+        "prices",
+    ]  # 'all' expands to every source, in order

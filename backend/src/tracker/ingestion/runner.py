@@ -20,9 +20,9 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from tracker.config import get_settings
-from tracker.db.models import Company, Filing, FilingChunk, Fundamental, InsiderTransaction
+from tracker.db.models import Company, Filing, FilingChunk, Fundamental, InsiderTransaction, Price
 from tracker.db.session import session_scope
-from tracker.ingestion import edgar_client, filings, form4, submissions, xbrl
+from tracker.ingestion import edgar_client, filings, form4, prices, submissions, xbrl
 from tracker.ingestion.xbrl import FundamentalFact
 from tracker.services.fiscal import format_fy_label
 
@@ -311,3 +311,77 @@ def print_form4_summary(summaries: list[Form4Summary]) -> None:
     print("-" * len(header))
     for s in sorted(summaries, key=lambda s: s.ticker):
         print(f"{s.ticker:<7}{s.buys:>6}{s.sells:>7}")
+
+
+# --------------------------------------------------------------------------------------------------
+# Prices lane (yfinance + stooq fallback)
+# --------------------------------------------------------------------------------------------------
+
+# Natural key = (cik, date); refresh the OHLCV + source. "open" is the SQL column name.
+_PRICE_UPDATE_COLS = ("open", "high", "low", "close", "volume", "source")
+
+
+@dataclass(frozen=True)
+class PriceSummary:
+    """Per-company price row count and provenance."""
+
+    ticker: str
+    cik: int
+    rows: int
+    source: str  # yfinance | stooq | mixed | -
+
+
+def _upsert_prices(session: Session, rows: list[prices.PriceRow]) -> None:
+    if not rows:
+        return
+    stmt = _insert(session)(Price).values([r.model_dump(by_alias=True) for r in rows])
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["cik", "date"],
+        set_={col: getattr(stmt.excluded, col) for col in _PRICE_UPDATE_COLS},
+    )
+    session.execute(stmt)
+
+
+def _summarize_prices(ticker: str, cik: int, rows: list[prices.PriceRow]) -> PriceSummary:
+    sources = {r.source for r in rows}
+    if not sources:
+        source = "-"
+    elif len(sources) == 1:
+        source = next(iter(sources))
+    else:
+        source = "mixed"
+    return PriceSummary(ticker=ticker, cik=cik, rows=len(rows), source=source)
+
+
+def run_prices(from_cache: bool = False) -> list[PriceSummary]:
+    """Ingest 2y of daily prices for the universe (yfinance, else stooq); return summaries."""
+    # The ticker->CIK map still flows through the EDGAR client, so honour --from-cache for it too.
+    edgar_client.from_cache = from_cache
+    tickers = get_settings().universe_tickers
+    ticker_map = xbrl.load_ticker_map(tickers)
+
+    summaries: list[PriceSummary] = []
+    with session_scope() as session:
+        for ticker in tickers:
+            resolved = ticker_map.get(ticker)
+            if resolved is None:
+                continue  # missing ticker already warned by load_ticker_map
+            cik, name = resolved
+            try:
+                rows = prices.fetch_prices(cik, ticker, from_cache=from_cache)
+                with session.begin_nested():  # savepoint per company (see run_xbrl)
+                    _upsert_company(session, cik, ticker, name)
+                    _upsert_prices(session, rows)
+                summaries.append(_summarize_prices(ticker, cik, rows))
+            except Exception:
+                logger.exception("prices ingest failed for %s (cik=%d); skipping", ticker, cik)
+    return summaries
+
+
+def print_prices_summary(summaries: list[PriceSummary]) -> None:
+    """Print per-company price row counts and source."""
+    header = f"{'TICKER':<7}{'ROWS':>7}  SOURCE"
+    print(header)
+    print("-" * len(header))
+    for s in sorted(summaries, key=lambda s: s.ticker):
+        print(f"{s.ticker:<7}{s.rows:>7}  {s.source}")
