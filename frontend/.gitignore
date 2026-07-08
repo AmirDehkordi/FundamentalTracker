@@ -1,0 +1,7 @@
+# Root .gitignore already covers node_modules/ and frontend/dist/.
+# These are frontend-local extras Vite can emit.
+dist
+dist-ssr
+*.local
+.env.local
+.env.*.local

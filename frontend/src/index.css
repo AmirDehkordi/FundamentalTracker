@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens — the single source of truth (dashboard-design skill, "quiet terminal").
+ * Dark palette only (no light :root); <html class="dark"> is still set so Tailwind's class dark
+ * strategy and any dark:-conditioned shadcn CSS resolve consistently. Raw hex (no hsl() wrapper) so
+ * no text/background pair rounds below the 4.5:1 contrast floor.
+ */
+@layer base {
+  :root {
+    --bg: #0b0f14;
+    --surface-1: #11161d;
+    --surface-2: #171e27;
+    --border: #232c37;
+
+    --text-1: #e7ecf3;
+    --text-2: #a9b4c2;
+    --text-3: #7b8794;
+
+    --accent: #6ea8fe;
+    --accent-bg: #14243d;
+
+    --pos: #34d399;
+    --neg: #f87171;
+    --warn: #fbbf24;
+
+    --radius: 0.625rem; /* 10px card radius */
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+}
+
+@layer components {
+  /* One recipe applied to every interactive element: a 2px accent ring, always visible on keyboard
+     focus. `ring` resolves to --accent. Sidebar options add `ring-inset` so the 232px column can't
+     clip the ring. */
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+}
+
+/* Respect reduced-motion: neutralise skeleton pulses and the 150ms transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,7 +1,7 @@
 # Local/macOS developer entrypoints. CI calls the underlying tools directly (see .github/workflows).
 .DEFAULT_GOAL := help
 .PHONY: help setup db-up db-down init-db ingest ingest-cache run test test-all verify \
-        evals seed-dump fresh-check
+        evals seed-dump fresh-check web-setup web-verify
 
 # Backend gate restored to 80 (metrics engine + ingestion carry real logic), per CLAUDE.md and
 # PLAN.md §11. Services carry a tighter 90 gate — that is where correctness lives.
@@ -39,7 +39,7 @@ test: ## Unit tests only (no postgres)
 test-all: ## Full suite incl. integration (needs postgres)
 	uv run pytest
 
-verify: ## Format check + lint + types + unit tests with coverage gates
+verify: ## Backend format+lint+types+coverage gates, then the frontend typecheck+build gate
 	uv run ruff format --check .
 	uv run ruff check .
 	uv run mypy backend/src
@@ -47,6 +47,13 @@ verify: ## Format check + lint + types + unit tests with coverage gates
 		--cov-fail-under=$(COV_FAIL_UNDER)
 	uv run pytest -m "not integration" --cov=tracker.services --cov-report=term-missing \
 		--cov-fail-under=$(SERVICES_COV_FAIL_UNDER)
+	$(MAKE) web-verify
+
+web-setup: ## Install frontend deps from the lockfile (needs Node 20)
+	cd frontend && npm ci
+
+web-verify: ## Frontend: typecheck + lint + format check + production build (needs Node 20)
+	cd frontend && npm run typecheck && npm run lint && npm run format:check && npm run build
 
 evals: ## Run the eval question set against /api/ask (P9 — not yet implemented)
 	uv run python -m evals.runner
