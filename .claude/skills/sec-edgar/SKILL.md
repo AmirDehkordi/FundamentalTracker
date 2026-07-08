@@ -17,23 +17,43 @@ Submissions:      https://data.sec.gov/submissions/CIK{cik:010d}.json
 Filing document:  https://www.sec.gov/Archives/edgar/data/{cik}/{accession-no-dashes}/{primaryDocument}
 Never hardcode CIKs; resolve from the map. AAPL -> 320193 is a good sanity value only.
 
-## Canonical concepts and us-gaap tag fallback chains (try in order, first hit wins)
+## Canonical concepts and us-gaap tag fallback chains (resolve PER (company, fiscal year))
+For each year, the first tag in the chain having that year wins — never "first tag with any data" per
+company: GOOGL reported contract revenue through FY2024 then switched to bare Revenues for FY2025
+($402.8B lives only there); a company-level pick silently drops GOOGL's latest year.
 revenue:          RevenueFromContractWithCustomerExcludingAssessedTax -> Revenues -> SalesRevenueNet
 net_income:       NetIncomeLoss
 eps_diluted:      EarningsPerShareDiluted            (units: USD/shares)
 gross_profit:     GrossProfit -> derive revenue - cost_of_revenue (tag derived:...)
 cost_of_revenue:  CostOfRevenue -> CostOfGoodsAndServicesSold
-operating_income: OperatingIncomeLoss
+operating_income: OperatingIncomeLoss -> derive revenue - cost_of_revenue - sga - rnd
+sga:              SellingGeneralAndAdministrativeExpense            (derivation input only)
+rnd:              ResearchAndDevelopmentExpense                     (derivation input only)
 cfo:              NetCashProvidedByUsedInOperatingActivities
 capex:            PaymentsToAcquirePropertyPlantAndEquipment
 shares_diluted:   WeightedAverageNumberOfDilutedSharesOutstanding   (units: shares)
-Alphabet reports cost of revenues but not GrossProfit — derivation is expected, not exceptional.
+Derivation is a designed-for path, not an exception: neither GOOGL nor ETN tags GrossProfit, and ETN
+stopped tagging OperatingIncomeLoss after FY2019. Derived rows carry source_tag="derived:..." plus the
+accession of the latest-filed input, and surface None-with-reason when a component is missing.
 
 ## Selecting annual facts (the messy-data core)
-Keep entries where form == "10-K" AND fp == "FY". For duration concepts require 330 <= (end-start).days
-<= 400 (rejects quarters). fiscal_year = the entry's "fy". Dedupe on (concept, end): keep max(filed) —
-this is the restatement policy (latest-filed-wins) and it also picks up split-adjusted comparatives (e.g.
-NVDA's post-split EPS restated in the newer filing). Persist accession (accn), filed, form, source_tag as
+Keep entries where form == "10-K" (also excludes 10-K/A; amendments arrive via latest-filed-wins) AND
+fp == "FY". For duration concepts require 330 <= (end-start).days <= 400 — verified necessary: 10-Ks carry
+QUARTERLY facts marked fp=FY; surviving durations are exactly 363-370d (52/53-week filers) and 364-365d.
+fiscal_year: NEVER trust the entry's "fy" — it is the fiscal year of the REPORT the fact appeared in, so
+comparatives inside newer 10-Ks carry the newer filing's fy (verified: AAPL revenue for the year ending
+2022-09-24 appears with fy=2022, 2023 AND 2024). min(fy) per period is also unreliable (filer-mislabeled
+fy in older filings; tag-history truncation). Rule: fiscal_year = calendar year of period_end — verified
+to match all five companies' own FY labels incl. NVDA's late-January year end. Guardrails at ingest: for
+anchor facts (end == the filing's reportDate) cross-check the label against the filing's fy; fiscal years
+must be strictly increasing by period_end; a per-ticker label offset exists in config for a future company
+whose convention differs. Violations log loudly; never load silently.
+Dedupe on (concept, period_end): keep max(filed) — the restatement policy (latest-filed-wins) — and CAPTURE
+the replaced value into superseded_value/superseded_filed so restatements stay visible to the UI and agent.
+Splits: latest-filed-wins is split-consistent ONLY inside the newest filings' 3-year comparative window
+(NVDA FY2024 EPS 11.93 pre-split -> 1.19 restated, but FY2022 survives pre-split at 3.85, true ~0.39).
+Detect shares_diluted YoY ratio >= 1.5 -> inferred split factor; back-adjust older per-share facts
+(EPS / f, shares * f, source_tag += "|split-adjusted"). Persist accession (accn), filed, form, source_tag as
 provenance on every row.
 
 ## Fiscal-year alignment (a designed trap in this case study — surface it, never hide it)
@@ -52,8 +72,10 @@ brief explicitly allows full-text retrieval as a fallback. Chunking: ~1400 chars
 paragraph boundaries; store (accession, cik, item, fiscal_year, chunk_index).
 
 ## Form 4 (insider transactions, thin slice by design)
-From submissions recent filings, form == "4", filed within 12 months, cap 40/company. Fetch the filing's
-XML primary document; parse nonDerivativeTable/nonDerivativeTransaction: transactionCode P (open-market buy)
+From submissions recent filings, form == "4", filed within 12 months, cap 40/company. primaryDocument is
+an XSL-rendered wrapper path (e.g. xslF345X06/wk-form4_123.xml) — strip the xslF345X0N/ directory prefix
+to fetch the raw XML (<ownershipDocument> root); parse nonDerivativeTable/nonDerivativeTransaction:
+transactionCode P (open-market buy)
 or S (sale) only; shares, pricePerShare (may be absent -> value NULL), reportingOwner name + officerTitle.
 Malformed XML: warn and skip. Downstream summary: 90d/365d buy vs sell counts + net notional.
 
@@ -64,4 +86,5 @@ interface, ILIKE.
 
 ## Prices
 yfinance period="2y" interval="1d" auto_adjust=True, per ticker, raw CSV cached to bronze. Fallback on any
-failure: https://stooq.com/q/d/l/?s={ticker_lower}.us&i=d (same OHLCV shape, log the fallback).
+failure: https://stooq.com/q/d/l/?s={ticker_lower}.us&i=d (same OHLCV shape, log the fallback). Record
+source (yfinance | stooq) on every row.

@@ -10,6 +10,7 @@ htmlcov/
 node_modules/
 frontend/dist/
 .env
+Amir_Schonfeld_Execution_Playbook.md
 .DS_Store
 *.log
 docs/img/raw/
