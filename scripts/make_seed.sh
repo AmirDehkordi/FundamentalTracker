@@ -8,8 +8,10 @@ OUT="seed/init/01_seed.sql.gz"
 mkdir -p seed/init
 
 # Dump to a temp file and mv on success so a mid-pipe pg_dump failure (pipefail aborts here) never
-# leaves a partial/corrupt $OUT — the size gate alone can't catch a >1KB truncated dump.
-TMP="$(mktemp)"
+# leaves a partial/corrupt $OUT — the size gate alone can't catch a >1KB truncated dump. The temp
+# lives in the OUT dir (already created) so the mv is a same-filesystem atomic rename everywhere —
+# $TMPDIR can be a different filesystem (tmpfs) on Linux CI, degrading mv to a non-atomic copy.
+TMP="$(mktemp "${OUT}.XXXXXX")"
 trap 'rm -f "$TMP"' EXIT
 
 # -T disables the pseudo-TTY so the dump streams cleanly into the pipe.
