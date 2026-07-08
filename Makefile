@@ -49,8 +49,8 @@ verify: ## Backend format+lint+types+unit coverage, then the frontend typecheck+
 web-setup: ## Install frontend deps from the lockfile (needs Node 20)
 	cd frontend && npm ci
 
-web-verify: ## Frontend: typecheck + production build (needs Node 20)
-	cd frontend && npm run typecheck && npm run build
+web-verify: ## Frontend: typecheck + lint + format check + production build (needs Node 20)
+	cd frontend && npm run typecheck && npm run lint && npm run format:check && npm run build
 
 evals: ## Run the eval question set against /api/ask (P9 — not yet implemented)
 	uv run python -m evals.runner
