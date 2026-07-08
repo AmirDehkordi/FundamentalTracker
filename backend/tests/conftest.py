@@ -37,13 +37,22 @@ def db_session() -> Iterator[Session]:
 @pytest.fixture
 def pg_session() -> Iterator[Session]:
     """Postgres-backed session for @pytest.mark.integration tests. Here the tsv column + GIN index
-    ARE created (the after_create DDL fires on the postgresql dialect)."""
+    ARE created (the after_create DDL fires on the postgresql dialect).
+
+    TEST_DATABASE_URL MUST point at a DISPOSABLE database: this drops and recreates the whole schema
+    per test, so the tsv/GIN after_create DDL is re-exercised and repeated seeds never collide on a
+    persistent server. CI uses an ephemeral service db; locally use a throwaway (e.g. tracker_test),
+    never the seed db.
+    """
     url = os.environ.get("TEST_DATABASE_URL")
     if not url:
         pytest.skip("TEST_DATABASE_URL not set")
     engine = create_engine(url)
+    Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
-    with Session(engine) as session:
-        seed_minimal(session)
-        yield session
-    engine.dispose()
+    try:
+        with Session(engine) as session:
+            seed_minimal(session)
+            yield session
+    finally:
+        engine.dispose()
