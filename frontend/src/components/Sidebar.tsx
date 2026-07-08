@@ -96,7 +96,10 @@ function CompanyList({ companies }: { companies: CompanyOut[] }) {
             <span className="truncate text-xs text-fg-2">{c.name}</span>
             <Badge
               variant="outline"
-              className="ml-auto shrink-0 border-border font-medium tabular-nums text-fg-3"
+              className={cn(
+                "ml-auto shrink-0 border-border font-medium tabular-nums",
+                selected ? "text-fg-2" : "text-fg-3",
+              )}
             >
               {formatFyBadge(c.latest_fiscal_year)}
             </Badge>
