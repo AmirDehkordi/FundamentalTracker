@@ -74,6 +74,12 @@ def test_parse_stooq_csv_no_data_returns_empty() -> None:
     assert prices.parse_stooq_csv("No data", 1, "AAPL") == []
 
 
+def test_parse_stooq_csv_dedupes_duplicate_dates() -> None:
+    text = "Date,Open,High,Low,Close,Volume\n2024-07-08,1,2,0.5,1.5,100\n2024-07-08,9,9,9,9,999\n"
+    rows = prices.parse_stooq_csv(text, 1, "AAPL")
+    assert len(rows) == 1 and rows[0].close == Decimal("9.000000")  # duplicate date: last wins
+
+
 @pytest.mark.usefixtures("bronze_tmp")
 def test_fetch_prices_falls_back_to_stooq_when_yfinance_raises() -> None:
     def _raiser(_ticker: str) -> pd.DataFrame:

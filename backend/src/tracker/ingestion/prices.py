@@ -113,7 +113,10 @@ def parse_stooq_csv(text: str, cik: int, ticker: str) -> list[PriceRow]:
             )
         except (KeyError, ValueError, InvalidOperation) as exc:
             logger.warning("skipping malformed stooq row for %s: %s", ticker, exc)
-    return rows
+    # Dedupe by date (keep last) so a duplicate stooq row can't crash the (cik, date) upsert — the
+    # yfinance path already dedupes its index; keep the two providers symmetric.
+    unique: dict[date, PriceRow] = {r.date: r for r in rows}
+    return [unique[d] for d in sorted(unique)]
 
 
 def write_cache_csv(ticker: str, rows: list[PriceRow]) -> None:
