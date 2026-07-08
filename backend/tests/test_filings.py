@@ -62,6 +62,28 @@ def test_item_7_is_not_truncated_by_a_see_item_7a_cross_reference() -> None:
     assert len(seven) >= 2000
 
 
+def test_item_7_recovers_mdna_from_titled_section_when_heading_is_a_stub() -> None:
+    # ETN/Eaton pattern: the "Item 7" heading is a cross-reference; the MD&A lives under its title.
+    body = "Revenue and segment results are discussed in detail here. " * 60  # ~3400 chars
+    text = "\n".join(
+        [
+            "Item 7. Management's Discussion and Analysis ......... 30",  # TOC
+            "Item 7A. Quantitative and Qualitative Disclosures ......... 45",
+            "Item 7. Management's Discussion and Analysis of Financial Condition.",
+            "Information required by this Item is presented in the MD&A section below.",
+            "Item 7A. Quantitative and Qualitative Disclosures.",  # adjacent -> stub span < 2000
+            "MANAGEMENT'S DISCUSSION AND ANALYSIS OF FINANCIAL CONDITION.",  # standalone title
+            "MDNA_TITLED_MARKER. " + body,
+            "Market Risk Disclosure",  # bounds the titled MD&A section
+            "Interest rate and currency risk are discussed here.",
+        ]
+    )
+    seven = filings.extract_item(text, "7")
+    assert "MDNA_TITLED_MARKER" in seven and len(seven) >= 2000  # recovered the titled MD&A
+    assert "Information required by this Item" not in seven  # not the cross-reference stub
+    assert "Interest rate and currency risk" not in seven  # bounded at Market Risk Disclosure
+
+
 def test_mid_line_item_references_are_not_treated_as_headings() -> None:
     # A sentence naming Item 1B / Item 2 mid-line must neither start nor bound a section.
     body = "ANTIBLOWUP " * 300  # ~3300 chars

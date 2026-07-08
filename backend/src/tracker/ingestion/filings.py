@@ -39,6 +39,11 @@ _ITEM_7 = re.compile(r"^\W*item\s*7\b(?!a)", _FLAGS)
 _ITEM_7A = re.compile(r"^\W*item\s*7a\b", _FLAGS)
 _ITEM_8 = re.compile(r"^\W*item\s*8\b", _FLAGS)  # fallback boundary when Item 7A is absent
 
+# Some filers (e.g. ETN/Eaton) make the "Item 7" heading a bare cross-reference and put the MD&A
+# under a standalone title. When the Item 7 span is a stub, extract that titled section instead.
+_MDNA_TITLE = re.compile(r"^\W*management.?s\s+discussion\s+and\s+analysis", _FLAGS)
+_MARKET_RISK = re.compile(r"^\W*market\s+risk\s+disclosure\b", _FLAGS)
+
 # (start, primary boundary, fallback boundary) per supported item.
 _ITEM_BOUNDS: dict[str, tuple[re.Pattern[str], re.Pattern[str], re.Pattern[str]]] = {
     "1A": (_ITEM_1A, _ITEM_1B, _ITEM_2),
@@ -133,13 +138,39 @@ def _extract_span(
     return best
 
 
+def _nearest_span(
+    text: str, start_re: re.Pattern[str], boundary_res: tuple[re.Pattern[str], ...]
+) -> str:
+    """Longest span from a line-anchored start to the NEAREST following boundary of any kind.
+
+    Unlike _extract_span (which prefers its primary boundary), this bounds each start at the closest
+    boundary — so a table-of-contents start is clipped by its adjacent TOC entry, not a far one.
+    """
+    starts = [m.start() for m in start_re.finditer(text)]
+    ends = sorted(m.start() for br in boundary_res for m in br.finditer(text))
+    best = ""
+    for start in starts:
+        after = [e for e in ends if e > start]
+        end = after[0] if after else len(text)
+        span = text[start:end].strip()
+        if len(span) > len(best):
+            best = span
+    return best
+
+
 def extract_item(text: str, item: str) -> str:
     """Extract one 10-K item's narrative text (see module docstring for the heuristic)."""
     try:
         start_re, primary_re, fallback_re = _ITEM_BOUNDS[item]
     except KeyError:
         raise ValueError(f"unsupported item {item!r}") from None
-    return _extract_span(text, start_re, primary_re, fallback_re)
+    span = _extract_span(text, start_re, primary_re, fallback_re)
+    if item == "7" and len(span) < _MIN_ITEM_CHARS:
+        # Item 7 is a cross-reference stub — recover the MD&A from its standalone title section.
+        titled = _nearest_span(text, _MDNA_TITLE, (_MARKET_RISK, _ITEM_7A, _ITEM_8))
+        if len(titled) > len(span):
+            return titled
+    return span
 
 
 def _extract_items(text: str, ticker: str, accession: str) -> dict[str, str]:
