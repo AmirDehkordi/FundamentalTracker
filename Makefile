@@ -3,8 +3,8 @@
 .PHONY: help setup db-up db-down init-db ingest ingest-cache run test test-all verify \
         evals seed-dump fresh-check
 
-# Backend gate restored to 80 in P4 (metrics engine), per CLAUDE.md and PLAN.md §11. Services carry
-# a tighter 90 gate — that is where correctness lives.
+# Backend gate restored to 80 (metrics engine + ingestion carry real logic), per CLAUDE.md and
+# PLAN.md §11. Services carry a tighter 90 gate — that is where correctness lives.
 COV_FAIL_UNDER := 80
 SERVICES_COV_FAIL_UNDER := 90
 
@@ -51,8 +51,8 @@ verify: ## Format check + lint + types + unit tests with coverage gates
 evals: ## Run the eval question set against /api/ask (P9 — not yet implemented)
 	uv run python -m evals.runner
 
-seed-dump: ## Dump the current DB to seed/init (P3 — not yet implemented)
-	@echo "seed-dump lands in P3"
+seed-dump: ## Dump the dev DB to seed/init/01_seed.sql.gz (auto-restored on a fresh clone)
+	bash scripts/make_seed.sh
 
 fresh-check: ## Fresh-clone rehearsal (P10 — not yet implemented)
 	@echo "fresh-check lands in P10"

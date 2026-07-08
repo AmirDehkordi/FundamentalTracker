@@ -23,6 +23,35 @@ def test_settings_masks_the_api_key() -> None:
     assert "sk-secret-value" not in repr(s)  # SecretStr keeps it out of logs/repr
 
 
+def _settings(**overrides: str) -> Settings:
+    base = {
+        "database_url": "sqlite://",
+        "llm_base_url": "http://example.test/v1",
+        "llm_api_key": "sk-test",
+        "llm_model": "gpt-test",
+        "sec_user_agent": "unit-test agent",
+    }
+    base.update(overrides)
+    return Settings(**base)  # type: ignore[arg-type]
+
+
+def test_universe_tickers_defaults_to_the_five() -> None:
+    assert _settings().universe_tickers == ["NVDA", "MSFT", "AAPL", "GOOGL", "ETN"]
+
+
+def test_universe_tickers_parses_normalises_and_dedupes() -> None:
+    # lower-case, padding, blanks and a duplicate all normalise to a clean ordered list.
+    assert _settings(universe=" aapl, nvda ,,aapl,").universe_tickers == ["AAPL", "NVDA"]
+
+
+def test_blank_sec_user_agent_is_rejected() -> None:
+    # SEC bans requests with a blank UA; the misconfig must fail fast at settings load, not live.
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        _settings(sec_user_agent="")
+
+
 def _set_env(monkeypatch: pytest.MonkeyPatch, database_url: str) -> None:
     monkeypatch.setenv("DATABASE_URL", database_url)
     monkeypatch.setenv("LLM_BASE_URL", "http://example.test/v1")

@@ -14,3 +14,5 @@ Amir_Schonfeld_Execution_Playbook.md
 .DS_Store
 *.log
 docs/img/raw/
+# make_seed.sh writes an atomic temp here before the mv; a SIGKILL could orphan one.
+seed/init/01_seed.sql.gz.*

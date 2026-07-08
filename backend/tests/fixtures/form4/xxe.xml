@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!DOCTYPE ownershipDocument [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<ownershipDocument>
+  <reportingOwner>
+    <reportingOwnerId>
+      <rptOwnerName>&xxe;</rptOwnerName>
+    </reportingOwnerId>
+  </reportingOwner>
+  <nonDerivativeTable>
+    <nonDerivativeTransaction>
+      <transactionCoding><transactionCode>P</transactionCode></transactionCoding>
+      <transactionAmounts>
+        <transactionShares><value>1000</value></transactionShares>
+        <transactionPricePerShare><value>100.00</value></transactionPricePerShare>
+      </transactionAmounts>
+    </nonDerivativeTransaction>
+  </nonDerivativeTable>
+</ownershipDocument>
