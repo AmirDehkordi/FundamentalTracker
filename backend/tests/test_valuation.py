@@ -8,6 +8,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.orm import Session
 
+from fixtures.rich_seed import FULLCO_CIK
 from tracker.api import schemas
 from tracker.db.models import Company, Fundamental, Price
 from tracker.services import metrics, valuation
@@ -44,6 +45,18 @@ def test_valuation_happy_path(rich_session: Session) -> None:
     assert result.eps_source.accession == "0001000001-2025-10K"
     assert result.eps_source.label == "FY2025 (ended 2025-12-31)"
     assert result.basis_note == metrics.BASIS_NOTE_PS_WAD
+
+
+def test_trailing_multiples_by_cik(rich_session: Session) -> None:
+    by_cik = valuation.trailing_multiples(rich_session, FULLCO_CIK)
+    by_ticker = valuation.get_valuation(rich_session, "FULL")
+    assert by_cik is not None and by_ticker is not None
+    assert by_cik == by_ticker  # the ticker wrapper delegates to the cik core
+    assert by_cik.trailing_pe.value == pytest.approx(179 / 7, rel=1e-9)
+
+
+def test_trailing_multiples_unknown_cik(rich_session: Session) -> None:
+    assert valuation.trailing_multiples(rich_session, 99999999) is None
 
 
 def test_valuation_negative_eps_and_missing_shares(rich_session: Session) -> None:

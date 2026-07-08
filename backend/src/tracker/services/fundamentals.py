@@ -67,10 +67,9 @@ class CompanyRef:
 
 
 @dataclass(frozen=True, slots=True)
-class ConceptFact:
-    """One surviving fundamental fact, at full Decimal precision, with provenance."""
+class FactProvenance:
+    """Provenance for one fact: which filing reported the value, and any restated prior value."""
 
-    value: Decimal
     accession: str
     superseded_value: Decimal | None
     superseded_filed: date | None
@@ -78,12 +77,18 @@ class ConceptFact:
 
 @dataclass(frozen=True, slots=True)
 class FyFacts:
-    """Raw matrix record for one fiscal year: label + {concept: fact}."""
+    """Raw matrix record for one fiscal year (PLAN.md §6).
+
+    `concepts` maps concept -> Decimal value (the spec shape). `provenance` is a parallel map
+    concept -> FactProvenance (accession + restatement) for the metric cells and citations; callers
+    that only want numbers use `concepts`.
+    """
 
     fiscal_year: int
     period_end: date
     label: str
-    concepts: dict[str, ConceptFact]
+    concepts: dict[str, Decimal]
+    provenance: dict[str, FactProvenance]
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,15 +156,15 @@ def get_annual_matrix(session: Session, cik: int) -> list[FyFacts]:
         fy_rows = by_fy[fiscal_year]
         # A fiscal-calendar change can leave two period_ends under one FY label; take the latest.
         period_end = max(row.period_end for row in fy_rows)
-        concepts = {
-            row.concept: ConceptFact(
-                value=row.value,
+        surviving = [row for row in fy_rows if row.period_end == period_end]
+        concepts = {row.concept: row.value for row in surviving}
+        provenance = {
+            row.concept: FactProvenance(
                 accession=row.accession,
                 superseded_value=row.superseded_value,
                 superseded_filed=row.superseded_filed,
             )
-            for row in fy_rows
-            if row.period_end == period_end
+            for row in surviving
         }
         matrix.append(
             FyFacts(
@@ -167,6 +172,7 @@ def get_annual_matrix(session: Session, cik: int) -> list[FyFacts]:
                 period_end=period_end,
                 label=format_fy_label(fiscal_year, period_end),
                 concepts=concepts,
+                provenance=provenance,
             )
         )
     return matrix
@@ -221,23 +227,25 @@ def compute_metric(
 
 
 def _concept_value(facts: FyFacts, concept: str) -> Decimal | None:
-    fact = facts.concepts.get(concept)
-    return fact.value if fact is not None else None
+    return facts.concepts.get(concept)
 
 
 def _raw_cell(facts: FyFacts, concept: str) -> Metric:
     unit = CONCEPT_UNITS[concept]
-    fact = facts.concepts.get(concept)
-    if fact is None:
+    value = facts.concepts.get(concept)
+    if value is None:
         return Metric(value=None, unit=unit)
+    prov = facts.provenance.get(concept)
     return Metric(
-        value=float(fact.value),
+        value=float(value),
         unit=unit,
-        accession=fact.accession,
+        accession=prov.accession if prov is not None else None,
         superseded_value=(
-            float(fact.superseded_value) if fact.superseded_value is not None else None
+            float(prov.superseded_value)
+            if prov is not None and prov.superseded_value is not None
+            else None
         ),
-        superseded_filed=fact.superseded_filed,
+        superseded_filed=prov.superseded_filed if prov is not None else None,
     )
 
 

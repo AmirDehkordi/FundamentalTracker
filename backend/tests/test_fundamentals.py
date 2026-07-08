@@ -47,8 +47,8 @@ def test_annual_matrix_ascending_with_all_concepts(rich_session: Session) -> Non
     assert [f.fiscal_year for f in matrix] == [2021, 2022, 2023, 2024, 2025]
     latest = matrix[-1]
     assert latest.label == "FY2025 (ended 2025-12-31)"
-    assert latest.concepts["revenue"].value == D("400000000000")
-    assert latest.concepts["shares_diluted"].value == D("16000000000")
+    assert latest.concepts["revenue"] == D("400000000000")
+    assert latest.concepts["shares_diluted"] == D("16000000000")
     assert set(latest.concepts) == {
         "revenue",
         "cost_of_revenue",
@@ -70,9 +70,10 @@ def test_annual_matrix_has_fiscal_year_gap(rich_session: Session) -> None:
 def test_annual_matrix_captures_superseded(rich_session: Session) -> None:
     matrix = fundamentals.get_annual_matrix(rich_session, EDGECO_CIK)
     fy2023 = next(f for f in matrix if f.fiscal_year == 2023)
-    revenue = fy2023.concepts["revenue"]
-    assert revenue.superseded_value == D("105000000000")
-    assert revenue.superseded_filed == datetime.date(2023, 3, 1)
+    assert fy2023.concepts["revenue"] == D("110000000000")  # surviving (latest-filed) value
+    prov = fy2023.provenance["revenue"]
+    assert prov.superseded_value == D("105000000000")
+    assert prov.superseded_filed == datetime.date(2023, 3, 1)
 
 
 def test_annual_matrix_picks_latest_period_end(rich_session: Session) -> None:
@@ -96,7 +97,7 @@ def test_annual_matrix_picks_latest_period_end(rich_session: Session) -> None:
     matrix = fundamentals.get_annual_matrix(rich_session, FULLCO_CIK)
     fy2025 = next(f for f in matrix if f.fiscal_year == 2025)
     assert fy2025.period_end == datetime.date(2025, 12, 31)
-    assert fy2025.concepts["revenue"].value == D("400000000000")  # the 6-30 stub is excluded
+    assert fy2025.concepts["revenue"] == D("400000000000")  # the 6-30 stub is excluded
 
 
 def test_get_fundamentals_metrics_units_and_values(rich_session: Session) -> None:
