@@ -124,12 +124,14 @@ def write_cache_csv(ticker: str, rows: list[PriceRow]) -> None:
     path = _cache_path(ticker)
     path.parent.mkdir(parents=True, exist_ok=True)
     buffer = io.StringIO()
-    writer = csv.writer(buffer)
+    writer = csv.writer(buffer, lineterminator="\n")  # LF (not csv's default \r\n) — cross-platform
     writer.writerow(_CACHE_HEADER)
     for r in rows:
         writer.writerow([r.date.isoformat(), r.open_, r.high, r.low, r.close, r.volume, r.source])
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(buffer.getvalue())
+    tmp.write_text(
+        buffer.getvalue(), newline=""
+    )  # newline="" keeps the LF bytes exactly as written
     tmp.replace(path)
 
 

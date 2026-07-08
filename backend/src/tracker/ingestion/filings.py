@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import logging
 import re
+import warnings
 from datetime import date
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from pydantic import BaseModel
 
 from tracker.ingestion import edgar_client
@@ -99,7 +100,11 @@ def html_to_text(html: str) -> str:
     Keeps one `\\n` between non-empty source lines so the chunker has paragraph boundaries and the
     line-anchored item regexes have real line starts to match.
     """
-    soup = BeautifulSoup(html, "lxml")
+    with warnings.catch_warnings():
+        # 10-K primary docs mix HTML and iXBRL/XML; the lxml HTML parser handles both and get_text
+        # works, so silence bs4's advisory that some docs "look like XML".
+        warnings.simplefilter("ignore", XMLParsedAsHTMLWarning)
+        soup = BeautifulSoup(html, "lxml")
     for tag in soup(["script", "style"]):
         tag.decompose()
     lines = []
