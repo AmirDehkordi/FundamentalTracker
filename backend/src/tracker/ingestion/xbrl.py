@@ -99,9 +99,11 @@ class _Entry:
 def load_ticker_map(tickers: list[str]) -> dict[str, tuple[int, str]]:
     """Resolve the configured universe to {TICKER: (cik, title)} via SEC's company_tickers.json."""
     payload = edgar_client.get_json(TICKERS_URL)
+    # company_tickers.json is a dict keyed by row index; tolerate a list shape too, never crash.
+    rows = payload.values() if isinstance(payload, dict) else payload
     wanted = set(tickers)
     found: dict[str, tuple[int, str]] = {}
-    for row in payload.values():
+    for row in rows:
         try:
             ticker = str(row["ticker"]).upper()
             if ticker in wanted:
@@ -155,25 +157,47 @@ def _annual_entries(facts: Any, tag: str, unit: str) -> list[_Entry]:
 
 
 def _resolve_chain(facts: Any, chain: list[str], unit: str) -> dict[date, list[_Entry]]:
-    """Group entries by period_end; per fiscal year, pick the FIRST chain tag that has that year."""
-    claimed: dict[int, str] = {}  # fiscal_year -> winning tag
-    by_period: dict[date, list[_Entry]] = {}
+    """Per fiscal year, pick the highest-priority chain tag that reports a MEANINGFUL value.
+
+    The naive "first tag that has the year" breaks on placeholder rows: a filer defines a
+    higher-priority us-gaap tag but populates it with 0 while the real figure sits on a lower one
+    (ETN carries us-gaap:Revenues=0 for FY2011-2015 with true revenue under SalesRevenueNet). A
+    zero-valued full-year monetary flow is such a placeholder, so a tag claims a year only when its
+    latest-filed value is non-zero; an all-zero year falls back to the highest-priority tag.
+    """
+    per_year: dict[int, dict[str, list[_Entry]]] = {}
     for tag in chain:
         for entry in _annual_entries(facts, tag, unit):
-            fiscal_year = entry.end.year
-            if claimed.setdefault(fiscal_year, tag) != tag:
-                continue  # an earlier tag in the chain already owns this fiscal year
+            per_year.setdefault(entry.end.year, {}).setdefault(tag, []).append(entry)
+
+    by_period: dict[date, list[_Entry]] = {}
+    for fiscal_year, tag_entries in per_year.items():
+        offering = [t for t in chain if t in tag_entries]  # highest priority first
+        chosen = next(
+            (t for t in offering if max(tag_entries[t], key=lambda e: e.filed).val != 0),
+            offering[0],  # every candidate is a 0 placeholder -> keep the highest-priority tag
+        )
+        if chosen != offering[0]:
+            logger.info(
+                "FY%d: %s is a zero placeholder, using %s instead", fiscal_year, offering[0], chosen
+            )
+        for entry in tag_entries[chosen]:
             by_period.setdefault(entry.end, []).append(entry)
     return by_period
 
 
 def _dedupe(entries: list[_Entry]) -> tuple[_Entry, Decimal | None, date | None]:
-    """Latest-filed-wins; capture the immediately-prior filing's value if it was restated."""
+    """Latest-filed-wins; capture the most recent DISTINCT prior value (the restated-away figure).
+
+    Not merely the immediately-prior filing: a restated value re-appears unchanged as a comparative
+    in later 10-Ks, so [90, 95, 95] must still surface superseded=90, else aged restatements (the
+    common shape) go invisible — defeating the "restatements stay visible" contract.
+    """
     ordered = sorted(entries, key=lambda e: e.filed)
     winner = ordered[-1]
-    prior = ordered[-2] if len(ordered) >= 2 else None
-    if prior is not None and prior.val != winner.val:
-        return winner, prior.val, prior.filed
+    for prior in reversed(ordered[:-1]):
+        if prior.val != winner.val:
+            return winner, prior.val, prior.filed
     return winner, None, None
 
 
@@ -282,7 +306,8 @@ def _run_guardrails(resolved: dict[str, dict[date, FundamentalFact]]) -> None:
 def extract_annual_facts(payload: dict[str, Any]) -> list[FundamentalFact]:
     """Parse one company-facts payload into annual FundamentalFact rows (see module docstring)."""
     cik = int(payload["cik"])
-    facts = payload.get("facts", {}).get("us-gaap", {})
+    # `or {}` (not a .get default) handles a present-but-null facts/us-gaap without crashing.
+    facts = (payload.get("facts") or {}).get("us-gaap") or {}
 
     resolved: dict[str, dict[date, FundamentalFact]] = {}
     for concept, chain in CONCEPT_CHAINS.items():

@@ -1,0 +1,30 @@
+{
+  "cik": 9999001,
+  "entityName": "TagPriority Test Co.",
+  "facts": {
+    "us-gaap": {
+      "RevenueFromContractWithCustomerExcludingAssessedTax": {
+        "units": {
+          "USD": [
+            {"start": "2016-01-01", "end": "2016-12-31", "val": 96000, "accn": "TP-2016", "fy": 2016, "fp": "FY", "form": "10-K", "filed": "2017-02-20"}
+          ]
+        }
+      },
+      "Revenues": {
+        "units": {
+          "USD": [
+            {"start": "2016-01-01", "end": "2016-12-31", "val": 90000, "accn": "TP-2016", "fy": 2016, "fp": "FY", "form": "10-K", "filed": "2017-02-20"},
+            {"start": "2015-01-01", "end": "2015-12-31", "val": 0, "accn": "TP-2015", "fy": 2015, "fp": "FY", "form": "10-K", "filed": "2016-02-20"}
+          ]
+        }
+      },
+      "SalesRevenueNet": {
+        "units": {
+          "USD": [
+            {"start": "2015-01-01", "end": "2015-12-31", "val": 20000, "accn": "TP-2015", "fy": 2015, "fp": "FY", "form": "10-K", "filed": "2016-02-20"}
+          ]
+        }
+      }
+    }
+  }
+}

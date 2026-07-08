@@ -1,0 +1,18 @@
+{
+  "cik": 9999004,
+  "entityName": "Malformed Test Co.",
+  "facts": {
+    "us-gaap": {
+      "Revenues": {
+        "units": {
+          "USD": [
+            {"start": "2022-01-01", "end": "2022-12-31", "val": 400, "accn": "GOOD", "fy": 2022, "fp": "FY", "form": "10-K", "filed": "2023-02-20"},
+            {"start": "2021-01-01", "end": "2021-12-31", "accn": "NOVAL", "fy": 2021, "fp": "FY", "form": "10-K", "filed": "2022-02-20"},
+            {"start": "2020-01-01", "end": "2020-12-31", "val": 300, "fy": 2020, "fp": "FY", "form": "10-K", "filed": "2021-02-20"},
+            {"end": "2019-12-31", "val": 250, "accn": "NOSTART", "fy": 2019, "fp": "FY", "form": "10-K", "filed": "2020-02-20"}
+          ]
+        }
+      }
+    }
+  }
+}
