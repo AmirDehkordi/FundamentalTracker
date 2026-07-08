@@ -127,6 +127,10 @@ def test_from_cache_missing_file_raises_clearly(monkeypatch: pytest.MonkeyPatch)
 def test_throttle_spaces_consecutive_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     sleeps: list[float] = []
     monkeypatch.setattr(edgar_client.time, "sleep", lambda s: sleeps.append(s))
+    # Pin the clock so the elapsed between the two requests is deterministically zero: the throttle
+    # must then sleep the FULL interval. Using the real clock made this flaky on slow CI (Windows),
+    # where ~30ms of real work between requests shrank the sleep below the tight tolerance.
+    monkeypatch.setattr(edgar_client.time, "monotonic", lambda: 1000.0)
     with respx.mock:
         respx.get(_URL).mock(return_value=httpx.Response(200, json={"a": 1}))
         respx.get(_URL2).mock(return_value=httpx.Response(200, json={"b": 2}))
@@ -134,5 +138,5 @@ def test_throttle_spaces_consecutive_requests(monkeypatch: pytest.MonkeyPatch) -
         edgar_client.get_json(_URL2)  # second: back-to-back -> throttle sleeps
     positive = [s for s in sleeps if s > 0]
     assert positive, "the back-to-back second request must be throttled"
-    # Spacing must approximate the 1/8s ceiling — a wrong (faster) interval would fail this.
+    # Zero elapsed -> the throttle sleeps exactly the 1/8s ceiling; a wrong interval fails this.
     assert abs(max(positive) - edgar_client._MIN_INTERVAL_S) < 0.02
