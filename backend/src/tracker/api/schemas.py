@@ -85,10 +85,11 @@ class CompanyOut(APIModel):
 
 
 class FundamentalsRow(APIModel):
-    """One fiscal year. `metrics` keys are the canonical concepts plus derived ratios (gross_margin,
-    operating_margin, fcf_margin, fcf_conversion, operating_leverage); insertion order is display
-    order. `yoy` mirrors `metrics`; each is this FY vs the prior FY, a MetricValue so a None YoY
-    carries its reason ('sign change / non-positive base')."""
+    """One fiscal year. `metrics` = raw canonical concepts, `fcf`, and the derived margins
+    (gross_margin, operating_margin, net_margin, fcf_margin, fcf_conversion) in display order.
+    `yoy` carries this-FY-vs-prior-FY for the raw levels + `fcf`, plus `operating_leverage`
+    (inherently a YoY quantity); the margins have no YoY cell. Each value is a MetricValue, so a
+    None YoY carries its reason ('sign change / non-positive base')."""
 
     fiscal_year: int
     period_end: date
@@ -211,8 +212,10 @@ class RiskDiffOut(APIModel):
     ticker: str
     cik: int
     item: str  # "1A"
-    latest: FilingRef
-    prior: FilingRef
+    # Nullable for the degraded state: with <2 filed years there is no pair to reference (§13). The
+    # required-FilingRef form could not represent the very state this schema's docstring documents.
+    latest: FilingRef | None
+    prior: FilingRef | None
     added: list[str]  # paragraph excerpts
     removed: list[str]
     counts: RiskDiffCounts

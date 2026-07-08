@@ -3,9 +3,10 @@
 .PHONY: help setup db-up db-down init-db ingest ingest-cache run test test-all verify \
         evals seed-dump fresh-check
 
-# P1 ONLY: the coverage gate is relaxed 80 -> 60 while the scaffold has little logic to cover.
-# Restore to 80 in P4 (metrics engine), per CLAUDE.md and PLAN.md §11.
-COV_FAIL_UNDER := 60
+# Backend gate restored to 80 in P4 (metrics engine), per CLAUDE.md and PLAN.md §11. Services carry
+# a tighter 90 gate — that is where correctness lives.
+COV_FAIL_UNDER := 80
+SERVICES_COV_FAIL_UNDER := 90
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -38,12 +39,14 @@ test: ## Unit tests only (no postgres)
 test-all: ## Full suite incl. integration (needs postgres)
 	uv run pytest
 
-verify: ## Format check + lint + types + unit tests with coverage gate
+verify: ## Format check + lint + types + unit tests with coverage gates
 	uv run ruff format --check .
 	uv run ruff check .
 	uv run mypy backend/src
 	uv run pytest -m "not integration" --cov=tracker --cov-report=term-missing \
 		--cov-fail-under=$(COV_FAIL_UNDER)
+	uv run pytest -m "not integration" --cov=tracker.services --cov-report=term-missing \
+		--cov-fail-under=$(SERVICES_COV_FAIL_UNDER)
 
 evals: ## Run the eval question set against /api/ask (P9 — not yet implemented)
 	uv run python -m evals.runner
