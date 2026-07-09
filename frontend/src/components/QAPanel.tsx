@@ -1,3 +1,12 @@
+import { useEffect, useRef } from "react";
+
+import { ChatInput } from "@/components/qa/ChatInput";
+import { ExampleChips } from "@/components/qa/ExampleChips";
+import { ExchangeList } from "@/components/qa/ExchangeList";
+import { ThinkingRow } from "@/components/qa/ThinkingRow";
+import { UserMessage } from "@/components/qa/UserMessage";
+import { ErrorState } from "@/components/states";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet,
   SheetContent,
@@ -5,11 +14,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useConversation } from "@/state/conversation";
 
 /**
- * The Q&A slide-over. This chunk ships the shell only — open/close, header, and the empty state.
- * The thread, citations, and trace land in a later chunk.
+ * The Q&A slide-over. Conversation state and the ask mutation live in ConversationProvider (above
+ * the Sheet), so a request survives closing the panel; here we only render the thread, the pending
+ * question, the thinking/error rows, and the input, keeping long answers scrolling inside the Sheet.
  */
 export function QAPanel({
   open,
@@ -18,6 +28,19 @@ export function QAPanel({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const { exchanges, pending, isThinking, isError, send, retry } =
+    useConversation();
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const reduce = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    bottomRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth" });
+  }, [exchanges.length, isThinking, isError]);
+
+  const empty = exchanges.length === 0 && pending === null;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -35,20 +58,35 @@ export function QAPanel({
             </SheetDescription>
           </SheetHeader>
 
-          <div className="flex flex-1 flex-col items-center justify-center gap-1.5 p-6 text-center">
-            <p className="text-13 text-fg-2">No questions yet.</p>
-            <p className="text-xs text-fg-3">
-              Try “What changed in NVDA's risk factors?” once Q&amp;A is live.
-            </p>
+          <div className="min-h-0 flex-1">
+            <ScrollArea className="h-full">
+              <div className="flex flex-col gap-4 p-4">
+                {empty ? (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-13 text-fg-2">
+                      Try one of these, or ask your own.
+                    </p>
+                    <ExampleChips onPick={send} disabled={isThinking} />
+                  </div>
+                ) : (
+                  <ExchangeList exchanges={exchanges} />
+                )}
+                {pending !== null && <UserMessage text={pending} />}
+                {isThinking && <ThinkingRow />}
+                {isError && (
+                  <ErrorState
+                    title="Couldn't reach the assistant"
+                    onRetry={retry}
+                    busy={isThinking}
+                  />
+                )}
+                <div ref={bottomRef} />
+              </div>
+            </ScrollArea>
           </div>
 
-          <div className="border-t border-border p-4">
-            <div className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-2">
-              <Skeleton className="h-4 flex-1" />
-            </div>
-            <p className="mt-2 text-xs text-fg-3">
-              Q&amp;A lands in a later chunk.
-            </p>
+          <div className="border-t border-border p-3">
+            <ChatInput onSend={send} disabled={isThinking} />
           </div>
         </div>
       </SheetContent>

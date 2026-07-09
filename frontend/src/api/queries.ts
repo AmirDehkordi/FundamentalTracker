@@ -1,9 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/api/client";
 import type {
+  AskRequest,
   CompanyOut,
   CompareOut,
+  FinalAnswer,
   FreshnessOut,
   FundamentalsOut,
   InsiderSummaryOut,
@@ -88,5 +90,22 @@ export function useCompare(metric: string) {
     queryKey: ["compare", metric],
     queryFn: () =>
       apiFetch<CompareOut>(`/api/compare?metric=${encodeURIComponent(metric)}`),
+  });
+}
+
+/**
+ * Grounded natural-language Q&A. The endpoint always answers 200 (declines/refusals arrive as a
+ * `declined` FinalAnswer), so `retry: false`: a real transport error won't recover on retry, and a
+ * declined answer isn't an error. The server caps latency at ~30s, so no client-side timeout.
+ */
+export function useAsk() {
+  return useMutation<FinalAnswer, ApiError, AskRequest>({
+    mutationFn: (req) =>
+      apiFetch<FinalAnswer>("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      }),
+    retry: false,
   });
 }

@@ -16,6 +16,44 @@ export type ErrorOut = components["schemas"]["ErrorOut"];
 // --- B. Temporary mirrors (delete per-route as the backend registers response models) -----------
 export type MetricUnit = "USD" | "USD/shares" | "shares" | "percent" | "ratio";
 
+// POST /api/ask — the grounded Q&A contract. Mirrors backend api/schemas.py (AskRequest / FinalAnswer
+// et al.). The endpoint always returns HTTP 200: failures/refusals come back as `declined` answers.
+export type CitationSource = "fundamental" | "filing" | "price" | "insider";
+
+export interface Message {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AskRequest {
+  question: string;
+  history: Message[];
+}
+
+export interface Citation {
+  source_type: CitationSource;
+  ticker: string;
+  fiscal_year?: number | null;
+  item?: string | null; // "1A" | "7" for filing citations
+  accession?: string | null;
+  url?: string | null; // SEC Archives link
+  detail: string; // human-readable, e.g. "Revenue $130.5B, FY2025 (ended 27 Sep 2025)"
+}
+
+export interface ToolTrace {
+  tool: string;
+  args: Record<string, unknown>;
+  result_summary: string;
+}
+
+export interface FinalAnswer {
+  answer_md: string;
+  citations: Citation[];
+  trace: ToolTrace[];
+  declined: boolean;
+  decline_reason?: string | null;
+}
+
 export interface MetricValue {
   value: number | null;
   unit: MetricUnit;
