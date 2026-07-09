@@ -99,10 +99,9 @@ export interface FreshnessOut {
 }
 
 // Fundamentals matrix. `rows` is chronological ascending; the UI takes the last N. `metrics` carries
-// raw concepts + fcf + margins + fcf_conversion; `yoy` carries raw-level % YoY, the margins +
-// fcf_conversion as percentage_points, incremental_operating_margin (ratio), and the dollar deltas
-// delta_revenue / delta_operating_income (USD). (The incremental-margin card derives those deltas
-// client-side from consecutive `metrics` rows, so it degrades even if the yoy fields are absent.)
+// raw concepts + fcf + margins + fcf_conversion + capex_intensity + reinvestment_ratio; `yoy` carries
+// raw-level % YoY and the margins + fcf_conversion + capex_intensity + reinvestment_ratio as
+// percentage_points deltas.
 export interface FundamentalsRow {
   fiscal_year: number;
   period_end: string;
@@ -210,6 +209,27 @@ export interface RiskDiffSummaryOut {
   note?: string | null;
 }
 
+// Top-3 thematic clusters of the Item 1A diff per side (GET .../risk-diff/themes) — distinct from
+// RiskDiffSummaryOut's top-3 INDIVIDUAL items, this groups the full diff into themes. Same
+// degraded/empty conventions as RiskDiffSummaryOut.
+export interface RiskThemeItem {
+  title: string; // <= 6 words
+  summary: string; // <= 30 words
+  paragraph_count: number;
+}
+
+export interface RiskDiffThemesOut {
+  ticker: string;
+  cik: number;
+  item: string;
+  latest: FilingRef | null;
+  prior: FilingRef | null;
+  added_themes: RiskThemeItem[];
+  removed_themes: RiskThemeItem[];
+  available: boolean;
+  note?: string | null;
+}
+
 // Form 4 window. Counts include unpriced rows; notional sums use priced rows only, so a notional can be
 // null (no priced transactions) even when a count is non-zero — that is an em dash, never $0.
 export interface InsiderWindow {
@@ -229,4 +249,5 @@ export interface InsiderSummaryOut {
   window_365d: InsiderWindow;
   caveat: string;
   has_data: boolean;
+  history_capped: boolean;
 }
