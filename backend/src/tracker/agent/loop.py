@@ -30,6 +30,8 @@ logger = logging.getLogger("tracker.agent.loop")
 
 _MAX_TURNS = 5
 _SUMMARY_MAX = 120
+# Tools whose output is 10-K narrative — an answer built on them must carry a `filing` citation.
+_FILING_TOOLS = frozenset({"search_filings", "diff_risk_factors"})
 
 
 class LlmAnswer(BaseModel):
@@ -129,26 +131,32 @@ def _finalize(
     deadline: float | None,
     usage: llm.TokenUsage | None,
 ) -> FinalAnswer:
-    ask = messages + [
-        {
-            "role": "user",
-            "content": "Now write the final answer as JSON matching the schema. Cite every figure.",
-        }
-    ]
+    used_filing = any(t.tool in _FILING_TOOLS for t in trace)
+    instruction = "Now write the final answer as JSON matching the schema. Cite every figure."
+    if used_filing:  # nudge the filing citation on the turn we already pay for, not only on a retry
+        instruction += ' You used filing text, so include a citation with source_type "filing".'
+    ask = messages + [{"role": "user", "content": instruction}]
     answer = _final_call(client, model, ask, deadline, usage)
     if answer is None:
         return _declined("Internal formatting error.", trace)
 
-    # Citation grounding is enforced only heuristically (a digit in answer_md with no citation); we
-    # don't cross-check that a cited accession actually came back from a tool. Adequate for a
-    # prototype, but a fabricated figure in free text can slip through. Retry once, then accept.
+    # Citation grounding is enforced only heuristically (a digit in answer_md with no citation, or
+    # filing text used but never cited as source_type "filing"); we don't cross-check that a cited
+    # accession actually came from a tool. Adequate for a prototype. Retry once (if the deadline
+    # allows), then accept — the rule is retry-once, not force-decline.
     stated_uncited = not answer.citations and any(c.isdigit() for c in answer.answer_md)
-    if not answer.declined and stated_uncited and not _past(deadline):
+    missing_filing = used_filing and not any(c.source_type == "filing" for c in answer.citations)
+    if not answer.declined and (stated_uncited or missing_filing) and not _past(deadline):
+        fix = (
+            "cite every figure"
+            if stated_uncited
+            else 'add a source_type "filing" citation (url + item) for the filing text you used'
+        )
         retry = ask + [
             {
                 "role": "user",
-                "content": "Your answer states figures but cites nothing. Return the same answer "
-                "with a citation for every figure.",
+                "content": f"Your answer is missing citations — {fix}. Return the "
+                "same answer, corrected.",
             }
         ]
         corrected = _final_call(client, model, retry, deadline, usage)

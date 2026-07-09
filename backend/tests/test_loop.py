@@ -35,6 +35,14 @@ _CIT = {
     "accession": "0000320193-2025-10K",
     "detail": "Trailing P/E 25.6, FY2025 (ended 27 Sep 2025)",
 }
+_FILING_CIT = {
+    "source_type": "filing",
+    "ticker": "AAPL",
+    "fiscal_year": 2025,
+    "item": "1A",
+    "url": "https://www.sec.gov/Archives/edgar/data/320193/x.htm",
+    "detail": "Item 1A risk factors, FY2025",
+}
 
 
 def _run(
@@ -68,7 +76,10 @@ def test_two_tool_cross_modal_trace_in_order(db_session: Session) -> None:
                 tool_call("c2", "search_filings", {"ticker": "AAPL", "query": "supply"}),
             ),
             stop_turn(),
-            final_response({"answer_md": "P/E 25.6; risks cite supply.", "citations": [_CIT]}),
+            # search_filings was used, so the answer must carry a filing citation (else it retries).
+            final_response(
+                {"answer_md": "P/E 25.6; risks cite supply.", "citations": [_CIT, _FILING_CIT]}
+            ),
         ]
     )
     answer = _run(db_session, client)
@@ -133,6 +144,24 @@ def test_citation_enforcement_retry(db_session: Session) -> None:
     answer = _run(db_session, client)
     assert answer.citations  # the enforcement retry supplied them
     assert len(client.calls) == 3
+
+
+def test_filing_tool_answer_without_filing_citation_retries(db_session: Session) -> None:
+    # search_filings was used but the first final answer cites only a fundamental -> the loop
+    # retries once for a filing citation and accepts the corrected answer.
+    client = FakeOpenAI(
+        [
+            tool_response(tool_call("c1", "search_filings", {"ticker": "AAPL", "query": "risk"})),
+            stop_turn(),
+            final_response({"answer_md": "Risks include supply.", "citations": [_CIT]}),
+            final_response(
+                {"answer_md": "Risks include supply.", "citations": [_CIT, _FILING_CIT]}
+            ),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert any(c.source_type == "filing" for c in answer.citations)  # the retry supplied it
+    assert len(client.calls) == 4
 
 
 def test_arg_validation_surfaces_as_tool_error(db_session: Session) -> None:
