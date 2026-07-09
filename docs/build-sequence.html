@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fundamentals Tracker — build sequence</title>
+<style>
+  :root {
+    /* light (default) — cool paper */
+    --bg: #f5f7f9;
+    --panel: #ffffff;
+    --panel-2: #eef1f5;
+    --line: #d6dde5;
+    --ink: #19212b;
+    --muted: #5b6775;
+    --accent: #b06f10;
+    --done: #6b7684;
+    --lane-foundation: #6f7a86;
+    --lane-ingestion: #1f8f7d;
+    --lane-backend: #3f68c2;
+    --lane-frontend: #7d55b8;
+    --lane-agent: #c85a50;
+    --lane-qa: #b64d7e;
+    --lane-packaging: #3f8e57;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --panel: #151b23;
+      --panel-2: #1b2330;
+      --line: #2a3441;
+      --ink: #e6edf3;
+      --muted: #8b98a6;
+      --accent: #e0a44a;
+      --done: #7b8590;
+      --lane-foundation: #7b8590;
+      --lane-ingestion: #35a790;
+      --lane-backend: #6088d8;
+      --lane-frontend: #a179d1;
+      --lane-agent: #d97369;
+      --lane-qa: #cf6d9a;
+      --lane-packaging: #59a86e;
+      color-scheme: dark;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 56px; }
+
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  header.head { margin-bottom: 6px; }
+  .eyebrow {
+    font: 600 0.72rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(1.5rem, 3.4vw, 2.05rem); font-weight: 650; letter-spacing: -0.01em;
+    margin: 0 0 8px; text-wrap: balance;
+  }
+  .lede { color: var(--muted); font-size: 0.98rem; max-width: 64ch; margin: 0; }
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  /* board -------------------------------------------------------------- */
+  .board {
+    margin-top: 26px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    overflow-x: auto;
+    padding: 14px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 118px repeat(6, minmax(154px, 1fr));
+    grid-auto-rows: minmax(66px, auto);
+    gap: 8px;
+    min-width: 940px;
+  }
+
+  .corner {
+    grid-row: 1; grid-column: 1;
+    position: sticky; left: 0; z-index: 3;
+    background: var(--panel);
+    font: 600 0.62rem/1.2 ui-monospace, Menlo, monospace;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+    display: flex; align-items: flex-end; padding: 0 6px 8px;
+  }
+  .stage {
+    grid-row: 1;
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 4px 4px 10px; border-bottom: 1px solid var(--line);
+    align-items: flex-start;
+  }
+  .stage .n { font: 650 0.9rem/1 ui-monospace, Menlo, monospace; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stage .t { font-size: 0.72rem; color: var(--muted); }
+
+  .lane {
+    grid-column: 1;
+    position: sticky; left: 0; z-index: 2;
+    background: var(--panel);
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.78rem; font-weight: 600; color: var(--ink);
+    padding-right: 6px;
+  }
+  .lane::before {
+    content: ""; width: 9px; height: 9px; border-radius: 3px; flex: none;
+    background: var(--dot);
+  }
+
+  .bar {
+    background: color-mix(in srgb, var(--lane) 15%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--lane) 40%, var(--line));
+    border-left: 4px solid var(--lane);
+    border-radius: 9px;
+    padding: 9px 11px;
+    display: flex; flex-direction: column; gap: 3px; justify-content: center;
+    min-width: 0;
+  }
+  .bar .top { display: flex; align-items: center; gap: 7px; }
+  .bar .pid {
+    font: 700 0.9rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--lane); font-variant-numeric: tabular-nums;
+  }
+  @media (prefers-color-scheme: dark) {
+    .bar .pid { color: color-mix(in srgb, var(--lane) 78%, #ffffff); }
+  }
+  .bar .name { font-size: 0.8rem; font-weight: 550; color: var(--ink); line-height: 1.25; }
+  .bar .deps {
+    font: 500 0.68rem/1.2 ui-monospace, Menlo, monospace;
+    color: var(--muted); letter-spacing: 0.01em;
+  }
+  .crit-dot { color: var(--accent); font-size: 0.62rem; margin-left: auto; }
+  .badge-done {
+    font: 600 0.6rem/1 ui-monospace, Menlo, monospace; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--panel); background: var(--done); border-radius: 999px; padding: 3px 7px; margin-left: auto;
+  }
+
+  /* legend + notes ----------------------------------------------------- */
+  .foot { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 22px; margin-top: 26px; }
+  .foot h2 {
+    font: 600 0.7rem/1 ui-monospace, Menlo, monospace; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 12px;
+  }
+  .legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+  .legend li { display: flex; align-items: center; gap: 9px; font-size: 0.82rem; }
+  .legend .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .reads { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  .reads li { font-size: 0.84rem; color: var(--muted); padding-left: 16px; position: relative; }
+  .reads li::before { content: "\2192"; position: absolute; left: 0; color: var(--accent); }
+  .reads b, .reads .mono { color: var(--ink); }
+  .crit-note {
+    margin-top: 20px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--panel-2); font-size: 0.82rem; color: var(--muted);
+  }
+  .crit-note b { color: var(--ink); }
+  .crit-note .path { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <p class="eyebrow">Fundamentals Tracker &middot; PLAN &sect;10</p>
+    <h1>Build sequence — 10 chunks, 6 lanes</h1>
+    <p class="lede">Dependency order, not a calendar. Left&rarr;right is <b>what unblocks what</b>;
+      columns are dependency stages, not elapsed time. <b>P1 is done</b>; after it the ingestion,
+      backend and frontend lanes run in parallel, then the agent and UI converge, then packaging.</p>
+  </header>
+
+  <div class="board" role="img" aria-label="Dependency Gantt of the ten build chunks across six lanes">
+    <div class="grid">
+      <!-- header row -->
+      <div class="corner mono">lane / stage</div>
+      <div class="stage" style="grid-column:2"><span class="n">0</span><span class="t">foundation</span></div>
+      <div class="stage" style="grid-column:3"><span class="n">1</span><span class="t">lanes start</span></div>
+      <div class="stage" style="grid-column:4"><span class="n">2</span><span class="t">ingest &middot; API</span></div>
+      <div class="stage" style="grid-column:5"><span class="n">3</span><span class="t">panels &middot; agent</span></div>
+      <div class="stage" style="grid-column:6"><span class="n">4</span><span class="t">Q&amp;A &middot; evals</span></div>
+      <div class="stage" style="grid-column:7"><span class="n">5</span><span class="t">ship</span></div>
+
+      <!-- Foundation -->
+      <div class="lane" style="grid-row:2; --dot:var(--lane-foundation)">Foundation</div>
+      <div class="bar" style="grid-row:2; grid-column:2; --lane:var(--lane-foundation)">
+        <div class="top"><span class="pid">P1</span><span class="badge-done">done</span></div>
+        <div class="name">Foundation &middot; schema &middot; contracts</div>
+        <div class="deps">start</div>
+      </div>
+
+      <!-- Ingestion -->
+      <div class="lane" style="grid-row:3; --dot:var(--lane-ingestion)">Ingestion</div>
+      <div class="bar" style="grid-row:3; grid-column:3; --lane:var(--lane-ingestion)">
+        <div class="top"><span class="pid">P2</span></div>
+        <div class="name">XBRL ingestion</div>
+        <div class="deps">needs P1</div>
+      </div>
+      <div class="bar" style="grid-row:3; grid-column:4; --lane:var(--lane-ingestion)">
+        <div class="top"><span class="pid">P3</span></div>
+        <div class="name">Narratives &middot; Form 4 &middot; prices &middot; seed</div>
+        <div class="deps">needs P2</div>
+      </div>
+
+      <!-- Backend -->
+      <div class="lane" style="grid-row:4; --dot:var(--lane-backend)">Backend</div>
+      <div class="bar" style="grid-row:4; grid-column:3; --lane:var(--lane-backend)">
+        <div class="top"><span class="pid">P4</span><span class="crit-dot" title="critical path">&#9670;</span></div>
+        <div class="name">Metrics engine &middot; services</div>
+        <div class="deps">needs P1</div>
+      </div>
+      <div class="bar" style="grid-row:4; grid-column:4; --lane:var(--lane-backend)">
+        <div class="top"><span class="pid">P5</span><span class="crit-dot" title="critical path">&#9670;</span></div>
+        <div class="name">API endpoints + freshness</div>
+        <div class="deps">needs P4</div>
+      </div>
+
+      <!-- Frontend -->
+      <div class="lane" style="grid-row:5; --dot:var(--lane-frontend)">Frontend</div>
+      <div class="bar" style="grid-row:5; grid-column:3; --lane:var(--lane-frontend)">
+        <div class="top"><span class="pid">P6</span></div>
+        <div class="name">Frontend foundation &middot; shell</div>
+        <div class="deps">needs P1</div>
+      </div>
+      <div class="bar" style="grid-row:5; grid-column:5; --lane:var(--lane-frontend)">
+        <div class="top"><span class="pid">P7</span><span class="crit-dot" title="critical path">&#9670;</span></div>
+        <div class="name">Data panels + Compare</div>
+        <div class="deps">needs P5 &middot; P6</div>
+      </div>
+
+      <!-- Agent -->
+      <div class="lane" style="grid-row:6; --dot:var(--lane-agent)">Agent</div>
+      <div class="bar" style="grid-row:6; grid-column:5; --lane:var(--lane-agent)">
+        <div class="top"><span class="pid">P8</span></div>
+        <div class="name">Agent &middot; tools &middot; loop &middot; /api/ask</div>
+        <div class="deps">needs P4 &middot; P3</div>
+      </div>
+
+      <!-- Q&A + Evals -->
+      <div class="lane" style="grid-row:7; --dot:var(--lane-qa)">Q&amp;A &middot; Evals</div>
+      <div class="bar" style="grid-row:7; grid-column:6; --lane:var(--lane-qa)">
+        <div class="top"><span class="pid">P9</span><span class="crit-dot" title="critical path">&#9670;</span></div>
+        <div class="name">Q&amp;A UI + evals</div>
+        <div class="deps">needs P7 &middot; P8</div>
+      </div>
+
+      <!-- Packaging -->
+      <div class="lane" style="grid-row:8; --dot:var(--lane-packaging)">Packaging</div>
+      <div class="bar" style="grid-row:8; grid-column:7; --lane:var(--lane-packaging)">
+        <div class="top"><span class="pid">P10</span><span class="crit-dot" title="critical path">&#9670;</span></div>
+        <div class="name">Packaging + fresh-clone</div>
+        <div class="deps">needs P9</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div>
+      <h2>Lanes</h2>
+      <ul class="legend">
+        <li><span class="sw" style="background:var(--lane-foundation)"></span> Foundation</li>
+        <li><span class="sw" style="background:var(--lane-ingestion)"></span> Ingestion &nbsp;<span class="mono" style="color:var(--muted);font-size:.74rem">P2 &rarr; P3</span></li>
+        <li><span class="sw" style="background:var(--lane-backend)"></span> Backend &nbsp;<span class="mono" style="color:var(--muted);font-size:.74rem">P4 &rarr; P5</span></li>
+        <li><span class="sw" style="background:var(--lane-frontend)"></span> Frontend &nbsp;<span class="mono" style="color:var(--muted);font-size:.74rem">P6 &rarr; P7</span></li>
+        <li><span class="sw" style="background:var(--lane-agent)"></span> Agent</li>
+        <li><span class="sw" style="background:var(--lane-qa)"></span> Q&amp;A + Evals</li>
+        <li><span class="sw" style="background:var(--lane-packaging)"></span> Packaging</li>
+      </ul>
+    </div>
+    <div>
+      <h2>How to read it</h2>
+      <ul class="reads">
+        <li>A chunk can start once <b>every</b> chunk in its <span class="mono">needs</span> line is merged.</li>
+        <li>Same column = safe to build <b>in parallel</b> (e.g. <span class="mono">P2 &middot; P4 &middot; P6</span>).</li>
+        <li><b>P7</b> waits on <span class="mono">P5</span> (endpoints) <i>and</i> <span class="mono">P6</span> (shell).</li>
+        <li><b>P8</b> waits on <span class="mono">P4</span> (services) <i>and</i> <span class="mono">P3</span> (data).</li>
+        <li><span style="color:var(--accent)">&#9670;</span> marks the <b>critical path</b> — the longest chain.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="crit-note">
+    <b>Critical path:</b>
+    <span class="path mono">P1 &rarr; P4 &rarr; P5 &rarr; P7 &rarr; P9 &rarr; P10</span>.
+    That chain sets the floor on wall-clock; the ingestion lane (<span class="mono">P2&rarr;P3</span>)
+    and P6 have slack and feed in along the way. Your planned parallel start —
+    <b class="mono">P2 &middot; P4 &middot; P6</b> — is exactly stage&nbsp;1.
+  </p>
+</div>
+</body>
+</html>
