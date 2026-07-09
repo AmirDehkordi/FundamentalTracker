@@ -12,6 +12,7 @@ import {
 } from "@/components/overview/RangeSelector";
 import { EmptyState } from "@/components/states";
 import { Skeleton } from "@/components/ui/skeleton";
+import { withMovingAverage } from "@/lib/series";
 import { useSelection } from "@/state/selection";
 
 const DAY = 86_400_000;
@@ -20,12 +21,12 @@ const RANGE_DAYS: Record<RangeKey, number> = {
   "1m": 31,
   "6m": 183,
   "1y": 366,
-  "2y": 731,
   max: Number.POSITIVE_INFINITY,
 };
 
-/** Slice the full 2y series back from the latest stored trading date (never "today"). */
-function sliceRows(rows: PriceRow[], range: RangeKey): PriceRow[] {
+/** Slice the full 2y series back from the latest stored trading date (never "today"). Generic so the
+ *  moving-average field survives the slice. */
+function sliceRows<T extends PriceRow>(rows: T[], range: RangeKey): T[] {
   if (rows.length === 0) return rows;
   const days = RANGE_DAYS[range];
   if (!Number.isFinite(days)) return rows;
@@ -68,13 +69,14 @@ export function PriceChartPanel() {
     >
       <AsyncBoundary
         query={query}
-        skeleton={<Skeleton className="h-[240px] w-full" />}
+        skeleton={<Skeleton className="h-[256px] w-full" />}
         errorTitle="Couldn't load prices"
         isEmpty={(d) => d.rows.length === 0}
         empty={<EmptyState>No price history for this range.</EmptyState>}
       >
         {(data) => {
-          const visible = sliceRows(data.rows, range);
+          // MA is computed over the FULL series first, then sliced, so a short range still shows it.
+          const visible = sliceRows(withMovingAverage(data.rows), range);
           if (visible.length === 0) {
             const known =
               PRICE_RANGES.find((r) => r.key === range)?.label ?? range;
