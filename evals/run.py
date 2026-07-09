@@ -241,7 +241,7 @@ def main() -> int:
         for case in cases:
             try:
                 body, latency, tokens = post_case(client, base_url, case)
-            except httpx.ConnectError as exc:
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
                 if not results:  # first request failed — the server almost certainly isn't up
                     print(
                         f"cannot reach {base_url}/api/ask — is the API running? (make run)\n{exc}"
@@ -261,8 +261,11 @@ def main() -> int:
     print(f"\nwrote {_LAST_RUN}")
 
     brief_failed = any(not r.overall for r in results if r.is_brief)
-    nonbrief_failed = sum(not r.overall and not r.is_brief for r in results)
-    if brief_failed or nonbrief_failed > allowed:
+    # A transport error is an infra fault, never a "known soft miss" — it must fail the run
+    # regardless of EVALS_ALLOWED_FAILURES, which only masks genuine assertion misses.
+    errored = any(r.error for r in results)
+    nonbrief_failed = sum(r.error is None and not r.overall and not r.is_brief for r in results)
+    if brief_failed or errored or nonbrief_failed > allowed:
         return 1
     return 0
 
