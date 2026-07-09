@@ -113,14 +113,15 @@ def call_final(
     response_format: dict[str, Any],
     usage: TokenUsage | None = None,
 ) -> ChatCompletion:
-    """The final structured turn: no tools, low temperature for stable JSON."""
+    """The final structured turn: no tools. Temperature is left at the provider default — reasoning
+    models (e.g. gpt-5.5) reject any non-default value; JSON stability comes from `response_format`
+    plus the `LlmAnswer` validation guard in loop.py, not a low temperature."""
     resp = _timed_create(
         client,
         phase="final",
         model=model,
         messages=messages,
         response_format=response_format,
-        temperature=0.1,
     )
     if usage is not None:
         usage.add(resp)

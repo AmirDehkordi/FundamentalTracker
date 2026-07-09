@@ -26,7 +26,7 @@ import yaml
 
 _QUESTIONS = Path(__file__).parent / "questions.yaml"
 _LAST_RUN = Path(__file__).parent / "last_run.md"
-_CLIENT_TIMEOUT = httpx.Timeout(40.0, connect=5.0)  # exceeds the server's 30s wall-clock guard
+_CLIENT_TIMEOUT = httpx.Timeout(55.0, connect=5.0)  # exceeds the server's 45s wall-clock guard
 _FOOTNOTE = (
     "Tokens = prompt+completion summed across every LLM call of the request "
     "(from the X-Tracker-*-Tokens response headers); `n/a` means the provider omitted usage. "
