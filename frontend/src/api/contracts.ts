@@ -49,3 +49,114 @@ export interface FreshnessOut {
   source_counts: Record<string, number>;
   company_count: number;
 }
+
+// Fundamentals matrix. `rows` is chronological ascending; the UI takes the last N. `metrics` carries
+// raw concepts + fcf + margins + fcf_conversion; `yoy` carries raw-level YoY + operating_leverage.
+// (Margins & fcf_conversion have no yoy cell; operating_leverage lives only in yoy — one ratio per row.)
+export interface FundamentalsRow {
+  fiscal_year: number;
+  period_end: string;
+  label: string;
+  metrics: Record<string, MetricValue>;
+  yoy: Record<string, MetricValue>;
+}
+
+export interface FundamentalsOut {
+  ticker: string;
+  cik: number;
+  name: string;
+  rows: FundamentalsRow[];
+}
+
+export interface PriceRow {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  source: string;
+}
+
+// A 10-K reference line on the price chart. `filed` is the x-position; `primary_doc_url` is the SEC link.
+export interface FilingMarker {
+  accession: string;
+  form: string;
+  fiscal_year: number;
+  period_end: string;
+  filed: string;
+  primary_doc_url: string;
+}
+
+export interface PricesOut {
+  ticker: string;
+  cik: number;
+  range: string;
+  rows: PriceRow[];
+  filings: FilingMarker[];
+}
+
+// One company's cell in a cross-company comparison, footnoted with ITS OWN fiscal year (alignment trap).
+export interface CompareCell {
+  ticker: string;
+  cik: number;
+  value: MetricValue;
+  fiscal_year: number;
+  period_end: string;
+  label: string;
+}
+
+export interface CompareOut {
+  metric: string;
+  basis_note: string;
+  rows: CompareCell[];
+}
+
+export interface FilingRef {
+  fiscal_year: number;
+  period_end: string;
+  accession: string;
+  primary_doc_url: string;
+  label: string;
+}
+
+export interface RiskDiffCounts {
+  added: number;
+  removed: number;
+  unchanged?: number | null;
+}
+
+// Item 1A year-over-year diff. Degraded state: `available === false` with a `note`, `prior` null.
+export interface RiskDiffOut {
+  ticker: string;
+  cik: number;
+  item: string;
+  latest: FilingRef | null;
+  prior: FilingRef | null;
+  added: string[];
+  removed: string[];
+  counts: RiskDiffCounts;
+  available: boolean;
+  note?: string | null;
+}
+
+// Form 4 window. Counts include unpriced rows; notional sums use priced rows only, so a notional can be
+// null (no priced transactions) even when a count is non-zero — that is an em dash, never $0.
+export interface InsiderWindow {
+  days: number;
+  buy_count: number;
+  sell_count: number;
+  net_shares: number | null;
+  net_notional: number | null;
+  buy_notional?: number | null;
+  sell_notional?: number | null;
+}
+
+export interface InsiderSummaryOut {
+  ticker: string;
+  cik: number;
+  window_90d: InsiderWindow;
+  window_365d: InsiderWindow;
+  caveat: string;
+  has_data: boolean;
+}
