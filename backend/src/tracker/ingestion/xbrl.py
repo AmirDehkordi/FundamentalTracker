@@ -43,7 +43,10 @@ CONCEPT_CHAINS: dict[str, list[str]] = {
     "sga": ["SellingGeneralAndAdministrativeExpense"],  # derivation input only
     "rnd": ["ResearchAndDevelopmentExpense"],  # derivation input only
     "cfo": ["NetCashProvidedByUsedInOperatingActivities"],
-    "capex": ["PaymentsToAcquirePropertyPlantAndEquipment"],
+    # NVDA stopped tagging the PP&E-only element after its FY2012 10-K and picked up the combined
+    # PP&E + intangible-asset-purchases element starting FY2022 (FY2013-FY2021 have no annual capex
+    # tag under either element — a genuine gap, not a fallback miss; see the sec-edgar skill).
+    "capex": ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"],
     "shares_diluted": ["WeightedAverageNumberOfDilutedSharesOutstanding"],
 }
 
