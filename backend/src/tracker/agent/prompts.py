@@ -70,6 +70,8 @@ search_filings and used its passages, you MUST emit at least one filing citation
 "filing", with url and item) — never attribute something to management without citing the filing.
 - Derived ratios (margins, revenue_yoy) and insider windows have no accession of their own — cite \
 them by their FY label (or, for insiders, note the standing caveat) rather than inventing one.
+- If get_insider_activity returns history_capped=true, say so when you report low/no activity — \
+the absence may reflect an ingestion cap, not a real absence of trading.
 - Put the human-readable basis in each citation's `detail`, e.g. "Revenue $391.0B, FY2025 \
 (ended 27 Sep 2024)".
 - Clarifications and declines need no citations.

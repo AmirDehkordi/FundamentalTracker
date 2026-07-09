@@ -514,10 +514,62 @@ def test_run_form4_end_to_end_on_sqlite(
     rows = empty_session.execute(select(InsiderTransaction)).scalars().all()
     assert {r.code for r in rows} == {"P", "S"}
     assert any(r.price is None for r in rows)  # the footnote-only row landed with NULL price
-    assert empty_session.get(Company, 320193) is not None
+    company = empty_session.get(Company, 320193)
+    assert company is not None
+    assert company.form4_capped is False  # one filing, well under the cap
 
     runner.print_form4_summary(summaries)
     assert "AAPL" in capsys.readouterr().out
+
+
+def _many_form4_submissions(n: int) -> tuple[str, list[str]]:
+    # n Form 4 filings, all recent, each with its own accession (so its own archive URL); returns
+    # the submissions payload plus the nodash accession list for mocking each fetch individually.
+    recent = (date.today() - timedelta(days=5)).isoformat()
+    accessions = [f"0000320193-24-{i:06d}" for i in range(n)]
+    payload = {
+        "cik": 320193,
+        "filings": {
+            "recent": {
+                "form": ["4"] * n,
+                "accessionNumber": accessions,
+                "primaryDocument": ["xslF345X05/wk-form4.xml"] * n,
+                "filingDate": [recent] * n,
+                "reportDate": ["2024-07-13"] * n,
+            }
+        },
+    }
+    return json.dumps(payload), [a.replace("-", "") for a in accessions]
+
+
+@pytest.mark.usefixtures("client_env")
+def test_run_form4_flags_capped_history(
+    empty_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runner, "session_scope", _filings_scope(empty_session))
+    monkeypatch.setattr(runner, "get_settings", lambda: SimpleNamespace(universe_tickers=["AAPL"]))
+    monkeypatch.setattr(form4, "_CAP_PER_COMPANY", 40)  # exercise the cap without 200 XML fetches
+
+    xml = (Path(__file__).parent / "fixtures" / "form4" / "buy_and_sale.xml").read_bytes()
+    tickers_body = {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}}
+    submissions_body, nodash_accessions = _many_form4_submissions(50)
+    with respx.mock:
+        respx.get(xbrl.TICKERS_URL).mock(return_value=httpx.Response(200, json=tickers_body))
+        respx.get(submissions.SUBMISSIONS_URL.format(cik=320193)).mock(
+            return_value=httpx.Response(200, text=submissions_body)
+        )
+        # All 50 filings share one filingDate, so Python's stable sort keeps their original (index)
+        # order; select_form4_filings then takes the first `cap` of that -> exactly indices 0..39.
+        # respx.mock asserts every registered route is called, so mock only those 40.
+        for nodash in nodash_accessions[:40]:
+            respx.get(
+                filings.ARCHIVES_DOC_URL.format(cik=320193, nodash=nodash, doc="wk-form4.xml")
+            ).mock(return_value=httpx.Response(200, content=xml))
+        runner.run_form4(from_cache=False)
+
+    company = empty_session.get(Company, 320193)
+    assert company is not None
+    assert company.form4_capped is True  # 50 filings > cap of 40
 
 
 @pytest.mark.usefixtures("client_env")

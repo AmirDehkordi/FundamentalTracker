@@ -46,12 +46,14 @@ class InsiderSummaryResult:
     window_365d: InsiderWindowData
     caveat: str
     has_data: bool
+    history_capped: bool
 
 
 def summary(session: Session, cik: int, *, as_of: date | None = None) -> InsiderSummaryResult:
     """90d/365d buy/sell counts + net notional. `as_of` overrides the anchor; else max filed."""
     company = session.get(Company, cik)
     ticker = company.ticker if company is not None else ""
+    history_capped = bool(company.form4_capped) if company is not None else False
     rows = list(
         session.scalars(select(InsiderTransaction).where(InsiderTransaction.cik == cik)).all()
     )
@@ -63,6 +65,7 @@ def summary(session: Session, cik: int, *, as_of: date | None = None) -> Insider
             window_365d=_empty_window(365),
             caveat=INSIDER_CAVEAT,
             has_data=False,
+            history_capped=history_capped,
         )
     anchor = as_of if as_of is not None else max(row.filed for row in rows)
     return InsiderSummaryResult(
@@ -72,6 +75,7 @@ def summary(session: Session, cik: int, *, as_of: date | None = None) -> Insider
         window_365d=_window(rows, 365, anchor),
         caveat=INSIDER_CAVEAT,
         has_data=True,
+        history_capped=history_capped,
     )
 
 

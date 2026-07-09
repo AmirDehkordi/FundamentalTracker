@@ -77,7 +77,17 @@ def test_build_insider_txns_skips_a_failing_fetch(monkeypatch: pytest.MonkeyPatc
         raise RuntimeError("network down")
 
     monkeypatch.setattr(form4, "fetch_form4_xml", _boom)
-    assert form4.build_insider_txns(1, records, date.today()) == []  # per-filing failure skipped
+    result = form4.build_insider_txns(1, records, date.today())
+    assert result.txns == []  # per-filing failure skipped
+    assert result.capped is False  # one filing, well under the cap
+
+
+def test_build_insider_txns_flags_capped_history() -> None:
+    as_of = date(2025, 1, 1)
+    many = [RecentFiling("4", f"a-{i}", "d.xml", date(2024, 12, 1), None) for i in range(250)]
+    result = form4.build_insider_txns(1, many, as_of)
+    assert result.capped is True  # 250 filings exceed _CAP_PER_COMPANY=200
+    assert result.txns == []  # every fetch fails against a fake accession -> no rows, still flagged
 
 
 def test_raw_xml_name_strips_xsl_wrapper_and_is_noop_otherwise() -> None:
@@ -94,13 +104,25 @@ def test_select_form4_windows_by_as_of_and_excludes_amendments() -> None:
         RecentFiling("4/A", "a-3", "d3.xml", date(2024, 12, 15), None),  # amendment -> excluded
         RecentFiling("10-K", "a-4", "d4.htm", date(2024, 11, 1), date(2024, 9, 30)),  # not a 4
     ]
-    assert [r.accession for r in form4.select_form4_filings(records, as_of)] == ["a-1"]
+    selection = form4.select_form4_filings(records, as_of)
+    assert [r.accession for r in selection.filings] == ["a-1"]
+    assert selection.capped is False
 
 
 def test_select_form4_caps_per_company() -> None:
     as_of = date(2025, 1, 1)
     many = [RecentFiling("4", f"a-{i}", "d.xml", date(2024, 12, 1), None) for i in range(50)]
-    assert len(form4.select_form4_filings(many, as_of, cap=40)) == 40
+    selection = form4.select_form4_filings(many, as_of, cap=40)
+    assert len(selection.filings) == 40
+    assert selection.capped is True
+
+
+def test_select_form4_not_capped_when_under_limit() -> None:
+    as_of = date(2025, 1, 1)
+    few = [RecentFiling("4", f"a-{i}", "d.xml", date(2024, 12, 1), None) for i in range(30)]
+    selection = form4.select_form4_filings(few, as_of, cap=40)
+    assert len(selection.filings) == 30
+    assert selection.capped is False
 
 
 def test_dedupe_batch_collapses_same_natural_key_last_wins(

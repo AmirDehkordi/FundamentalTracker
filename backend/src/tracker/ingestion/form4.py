@@ -1,7 +1,8 @@
 """Form 4 insider transactions: submissions index -> open-market buy/sell rows (sec-edgar skill).
 
 A deliberately thin slice: from a company's recent filings take form=="4" within the last 12 months
-(cap 40), fetch each raw ownership XML, and keep only nonDerivativeTransaction rows with
+(cap 200, flagged via Form4Selection.capped if exceeded), fetch each raw ownership XML, and keep
+only nonDerivativeTransaction rows with
 transactionCode P (open-market buy) or S (sale). The primaryDocument is an XSL-rendered wrapper path
 (xslF345X0N/...) — strip that prefix to reach the raw <ownershipDocument> XML. Parsing is
 namespace-agnostic (local-name()) so a future namespaced document does not silently yield zero rows,
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -27,7 +29,10 @@ logger = logging.getLogger(__name__)
 
 _XSL_PREFIX = re.compile(r"^xslF345X\d+/")
 _WINDOW_DAYS = 365
-_CAP_PER_COMPANY = 40
+# Real 365-day Form-4 volume for the current universe tops out at 178 (GOOGL) — 200 gives headroom.
+# `Form4Selection.capped`/`Form4IngestResult.capped` still flag it honestly if a company ever
+# exceeds this, rather than silently truncating history the way the old cap=40 did.
+_CAP_PER_COMPANY = 200
 
 # Column scales — quantize here so a value is identical on SQLite (unit) and Postgres (prod); SQLite
 # stores NUMERIC as float and would otherwise round differently from Postgres NUMERIC(p, s).
@@ -55,15 +60,33 @@ class InsiderTxn(BaseModel):
     value: Decimal | None  # shares * price when price is present
 
 
+@dataclass(frozen=True, slots=True)
+class Form4Selection:
+    """Filings selected for ingestion, and whether the per-company cap discarded any older ones."""
+
+    filings: list[RecentFiling]
+    capped: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Form4IngestResult:
+    """Parsed P/S transactions, and whether the underlying filing selection was capped."""
+
+    txns: list[InsiderTxn]
+    capped: bool
+
+
 def raw_xml_name(primary_document: str) -> str:
     """Strip the xslF345X0N/ XSL-wrapper prefix to reach the raw ownership XML (no-op if absent)."""
     return _XSL_PREFIX.sub("", primary_document)
 
 
 def select_form4_filings(
-    records: list[RecentFiling], as_of: date, cap: int = _CAP_PER_COMPANY
-) -> list[RecentFiling]:
+    records: list[RecentFiling], as_of: date, cap: int | None = None
+) -> Form4Selection:
     """The most recent form=="4" filings within 12 months of `as_of`, capped, newest first."""
+    if cap is None:  # resolved here, not as a bound default, so monkeypatching the module
+        cap = _CAP_PER_COMPANY  # constant (e.g. in tests) actually takes effect
     cutoff = as_of - timedelta(days=_WINDOW_DAYS)
     selected = [
         r
@@ -71,7 +94,7 @@ def select_form4_filings(
         if r.form == "4" and r.filing_date >= cutoff and r.primary_document  # exact 4 (not 4/A)
     ]
     selected.sort(key=lambda r: r.filing_date, reverse=True)
-    return selected[:cap]
+    return Form4Selection(filings=selected[:cap], capped=len(selected) > cap)
 
 
 def fetch_form4_xml(cik: int, accession: str, primary_document: str) -> bytes:
@@ -174,13 +197,14 @@ def _dedupe_batch(txns: list[InsiderTxn]) -> list[InsiderTxn]:
     return list(deduped.values())
 
 
-def build_insider_txns(cik: int, records: list[RecentFiling], as_of: date) -> list[InsiderTxn]:
+def build_insider_txns(cik: int, records: list[RecentFiling], as_of: date) -> Form4IngestResult:
     """Fetch + parse a company's recent Form 4s into deduped insider rows; a bad XML is skipped."""
+    selection = select_form4_filings(records, as_of)
     txns: list[InsiderTxn] = []
-    for r in select_form4_filings(records, as_of):
+    for r in selection.filings:
         try:
             xml = fetch_form4_xml(cik, r.accession, r.primary_document)
             txns.extend(parse_form4_xml(xml, cik, r.accession, r.filing_date))
         except Exception:  # a fetch/parse failure on one filing must not crash the company run
             logger.exception("failed to fetch/parse Form 4 %s; skipping", r.accession)
-    return _dedupe_batch(txns)
+    return Form4IngestResult(txns=_dedupe_batch(txns), capped=selection.capped)
