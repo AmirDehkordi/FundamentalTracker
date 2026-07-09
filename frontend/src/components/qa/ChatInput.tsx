@@ -38,10 +38,10 @@ export function ChatInput({
   };
 
   return (
-    <div className="flex items-end gap-2 rounded-md border border-border bg-surface-2 px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
+    <div className="flex items-end gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 focus-within:ring-2 focus-within:ring-ring">
       <textarea
         ref={ref}
-        rows={1}
+        rows={2}
         value={value}
         disabled={disabled}
         onChange={(e) => {
@@ -51,7 +51,9 @@ export function ChatInput({
         onKeyDown={onKeyDown}
         placeholder="Ask about fundamentals, filings, prices, or insider activity"
         aria-label="Ask a question"
-        className="max-h-32 flex-1 resize-none bg-transparent text-13 text-fg-1 outline-none placeholder:text-fg-3 disabled:opacity-60"
+        // Taller default (min-h) with a larger cap; the internal scrollbar is hidden so it stays clean
+        // next to the send button (Enter sends before it ever needs to scroll far anyway).
+        className="max-h-52 min-h-[60px] flex-1 resize-none bg-transparent text-13 leading-relaxed text-fg-1 outline-none [scrollbar-width:none] placeholder:text-fg-3 disabled:opacity-60 [&::-webkit-scrollbar]:hidden"
       />
       <Button
         size="icon"
