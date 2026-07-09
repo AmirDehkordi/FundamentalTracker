@@ -16,10 +16,13 @@ import {
   type SortDir,
   yoyFormat,
 } from "@/lib/compare";
+import { describeMetric } from "@/lib/format";
 import {
   YOY_ELIGIBLE,
   compareMetricLabel,
   isSignedMetric,
+  polarityOf,
+  toneForDelta,
 } from "@/lib/metrics";
 
 function SortToggle({
@@ -105,6 +108,29 @@ export function ComparePanel({ metric }: { metric: string }) {
               companyYoyCell(all.byTicker[r.ticker], metric, r),
             ),
           );
+          // Per-company YoY for the table's change column (only when the metric supports YoY). Colour by
+          // the metric's polarity so it reads like the overview (a cost rising is red, not green).
+          const pol = polarityOf(metric);
+          const yoyByTicker =
+            yoyEligible && !all.isPending && !all.allError
+              ? Object.fromEntries(
+                  rrows.map((c) => {
+                    const v = c.value.value;
+                    return [
+                      c.ticker,
+                      v == null
+                        ? {
+                            text: describeMetric(c.value).text,
+                            tone: "neutral" as const,
+                          }
+                        : {
+                            text: yoyFormat(metric).label(c),
+                            tone: toneForDelta(v, pol),
+                          },
+                    ];
+                  }),
+                )
+              : undefined;
           return (
             <div className="space-y-4">
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -128,7 +154,11 @@ export function ComparePanel({ metric }: { metric: string }) {
                   )}
                 </ChartSection>
               </div>
-              <CompareTable rows={lrows} signed={signed} />
+              <CompareTable
+                rows={lrows}
+                signed={signed}
+                yoyByTicker={yoyByTicker}
+              />
               <p className="text-xs text-fg-3">{data.basis_note}</p>
             </div>
           );
