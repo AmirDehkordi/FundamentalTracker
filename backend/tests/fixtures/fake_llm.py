@@ -28,6 +28,16 @@ def raw_tool_call(call_id: str, name: str, arguments: str) -> SimpleNamespace:
     )
 
 
+def malformed_tool_call(call_id: str) -> SimpleNamespace:
+    """A type=function call with a null function object — a spec-violating proxy shape."""
+    return SimpleNamespace(id=call_id, type="function", function=None)
+
+
+def custom_tool_call(call_id: str) -> SimpleNamespace:
+    """A non-function tool call (e.g. an OpenAI custom tool) — the loop must skip it."""
+    return SimpleNamespace(id=call_id, type="custom", custom=SimpleNamespace(name="x", input="{}"))
+
+
 def _completion(
     *,
     content: str | None,
@@ -72,6 +82,17 @@ def raw_final(content: str) -> SimpleNamespace:
 def empty_choices() -> SimpleNamespace:
     """A response with no choices (content-filter / some proxy error shapes)."""
     return SimpleNamespace(choices=[], usage=None, model="fake", id="cmpl-fake")
+
+
+def refusal_final(text: str) -> SimpleNamespace:
+    """A final turn carrying an SDK-native `message.refusal` and no content."""
+    message = SimpleNamespace(role="assistant", content=None, tool_calls=None, refusal=text)
+    return SimpleNamespace(
+        choices=[SimpleNamespace(index=0, finish_reason="stop", message=message)],
+        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        model="fake",
+        id="cmpl-fake",
+    )
 
 
 class FakeOpenAI:

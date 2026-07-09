@@ -169,6 +169,10 @@ def _final_call(
             return None
         msg = _message(resp)  # empty choices -> content None -> falls into the retry/decline path
         content = msg.content if msg is not None else None
+        # An SDK-native refusal (message.refusal, no content) is a decline, not a format error.
+        refusal = getattr(msg, "refusal", None) if msg is not None else None
+        if refusal and not content:
+            return LlmAnswer(answer_md=refusal, declined=True, decline_reason=refusal)
         try:
             return LlmAnswer.model_validate_json(content or "")
         except ValidationError as exc:
@@ -182,7 +186,7 @@ def _final_call(
                     "content": f"That did not match the schema: {exc}. Return corrected JSON only.",
                 },
             ]
-    return None
+    return None  # pragma: no cover - the (1, 2) loop always returns; kept for mypy's return check
 
 
 def _initial_messages(question: str, history: list[Message]) -> list[dict[str, Any]]:
@@ -205,8 +209,19 @@ def _past(deadline: float | None) -> bool:
 
 
 def _function_calls(msg: Any) -> list[Any]:
-    """The function tool calls on an assistant message (skips any non-function/custom call)."""
-    return [tc for tc in (msg.tool_calls or []) if getattr(tc, "type", None) == "function"]
+    """Function tool calls on an assistant message. Skips non-function calls AND malformed ones
+    (no `function` object or no string `name`) so a spec-violating proxy response degrades to a
+    finalize-with-what-we-have instead of raising out of run()'s no-raise contract."""
+    out: list[Any] = []
+    for tc in msg.tool_calls or []:
+        if getattr(tc, "type", None) != "function":
+            continue
+        fn = getattr(tc, "function", None)
+        name = getattr(fn, "name", None)
+        if fn is None or not isinstance(name, str) or not name:
+            continue
+        out.append(tc)
+    return out
 
 
 def _safe_args(raw: str) -> dict[str, Any]:

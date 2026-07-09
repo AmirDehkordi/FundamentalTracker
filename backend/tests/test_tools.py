@@ -285,6 +285,33 @@ def test_summarize_covers_every_tool(db_session: Session) -> None:
     assert tools.summarize("mystery", {"ok": True}) == "mystery ok"  # fallback
 
 
+def test_every_tool_payload_is_json_serializable(db_session: Session) -> None:
+    # Invariant 4: loop.py does json.dumps(result) on every tool result, so no Decimal/date/other
+    # non-JSON object may leak from any handler. Cover all 7 (db_session has AAPL + NVDA).
+    import json
+
+    cases = [
+        ("get_fundamentals", '{"ticker": "AAPL"}'),
+        ("compare_companies", '{"metric": "fcf_conversion"}'),
+        ("get_valuation", '{"ticker": "AAPL"}'),
+        ("search_filings", '{"ticker": "AAPL", "query": "supply"}'),
+        ("diff_risk_factors", '{"ticker": "AAPL"}'),
+        ("get_insider_activity", '{"ticker": "NVDA"}'),
+        ("list_universe", "{}"),
+    ]
+    for name, raw in cases:
+        json.dumps(tools.call_tool(db_session, name, raw))  # must not raise
+
+
+def test_get_fundamentals_empty_concepts_returns_all(rich_session: Session) -> None:
+    # An explicit concepts=[] means 'no filter', same as omitting it — never all-empty rows.
+    out = tools.get_fundamentals(
+        rich_session, tools.GetFundamentalsArgs(ticker="FULL", concepts=[])
+    )
+    assert out["ignored_concepts"] == []
+    assert len(out["rows"][-1]["metrics"]) > 1
+
+
 def test_fiscal_serializer_isoformats_dates() -> None:
     out = tools._fiscal("FY2025 (ended 2025-09-27)", 2025, datetime.date(2025, 9, 27))
     assert out == {

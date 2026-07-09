@@ -112,8 +112,23 @@ def test_ask_internal_error_declines_not_500(
     assert resp.json()["decline_reason"] == "internal error"
 
 
-def test_ask_oversized_request_declined(db_session: Session) -> None:
+def test_ask_oversized_question_declined(db_session: Session) -> None:
     # Guarded before any LLM call, so the empty fake is never touched.
     resp = _client(db_session, FakeOpenAI([])).post("/api/ask", json={"question": "x" * 5000})
     assert resp.status_code == 200
     assert resp.json()["decline_reason"] == "request too large"
+
+
+def test_ask_oversized_history_declined(db_session: Session) -> None:
+    history = [{"role": "user", "content": "h"} for _ in range(21)]  # > _MAX_HISTORY_TURNS
+    resp = _client(db_session, FakeOpenAI([])).post(
+        "/api/ask", json={"question": "q", "history": history}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["decline_reason"] == "request too large"
+
+
+def test_get_session_factory_is_the_real_sessionmaker() -> None:
+    from sqlalchemy.orm import sessionmaker
+
+    assert isinstance(get_session_factory(), sessionmaker)  # the production DI provider
