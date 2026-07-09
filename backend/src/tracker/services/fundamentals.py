@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from tracker.concepts import CANONICAL_CONCEPTS
 from tracker.db.models import Company, Fundamental
-from tracker.services import metrics
+from tracker.services import metrics, prices
 from tracker.services.fiscal import (
     ReportedFiscalYear,
     format_fy_label,
@@ -59,7 +59,13 @@ REASON_UNKNOWN_METRIC = "unknown metric"
 
 @dataclass(frozen=True, slots=True)
 class CompanyRef:
-    """Mirrors schemas.CompanyOut."""
+    """Mirrors schemas.CompanyOut.
+
+    `market_cap` = latest close x latest-reported-FY diluted shares (same approximation
+    metrics.build_ps uses for P/S — weighted-avg diluted shares, not period-end shares outstanding).
+    Only list_companies populates it (batched); get_company leaves it None so the per-ticker
+    resolver used by every panel route + agent tool call stays a single cheap query.
+    """
 
     cik: int
     ticker: str
@@ -67,6 +73,7 @@ class CompanyRef:
     latest_fiscal_year: int | None
     latest_period_end: date | None
     latest_fy_label: str | None
+    market_cap: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,13 +122,43 @@ class FundamentalsResult:
     rows: list[FyRow]
 
 
+def _latest_shares_diluted_map(
+    session: Session, latest: dict[int, ReportedFiscalYear]
+) -> dict[int, Decimal]:
+    """cik -> shares_diluted value at exactly that company's latest reported FY, in one query."""
+    if not latest:
+        return {}
+    rows = session.execute(
+        select(Fundamental.cik, Fundamental.fiscal_year, Fundamental.value).where(
+            Fundamental.concept == "shares_diluted", Fundamental.form == "10-K"
+        )
+    ).all()
+    result: dict[int, Decimal] = {}
+    for cik, fiscal_year, value in rows:
+        target = latest.get(cik)
+        if target is not None and target.fiscal_year == fiscal_year:
+            result[cik] = value
+    return result
+
+
 def list_companies(session: Session) -> list[CompanyRef]:
-    """The tracked universe, ascending by ticker, each with its latest reported FY (PLAN §5)."""
+    """The tracked universe, ascending by ticker, each with its latest reported FY (PLAN §5).
+
+    market_cap is None-with-no-reason (a CompanyOut field, not a MetricValue) whenever the latest
+    reported FY has no stored price or no shares_diluted — same missing-input cases build_ps hits.
+    """
     companies = session.scalars(select(Company).order_by(Company.ticker)).all()
     latest = latest_reported_fiscal_year_map(session)
+    shares = _latest_shares_diluted_map(session, latest)
+    closes = prices.latest_close_map(session)
     result: list[CompanyRef] = []
     for c in companies:
         fy = latest.get(c.cik)
+        close = closes.get(c.cik)
+        share_count = shares.get(c.cik)
+        market_cap = (
+            close[0] * share_count if close is not None and share_count is not None else None
+        )
         result.append(
             CompanyRef(
                 cik=c.cik,
@@ -130,6 +167,7 @@ def list_companies(session: Session) -> list[CompanyRef]:
                 latest_fiscal_year=fy.fiscal_year if fy else None,
                 latest_period_end=fy.period_end if fy else None,
                 latest_fy_label=fy.label if fy else None,
+                market_cap=market_cap,
             )
         )
     return result

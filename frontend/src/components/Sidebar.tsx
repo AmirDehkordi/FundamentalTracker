@@ -1,7 +1,8 @@
-import { type KeyboardEvent, useEffect, useRef } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
 
 import logoUrl from "@/assets/schonfeld_page_logo.png";
 import { AsyncBoundary, isEmptyArray } from "@/components/AsyncBoundary";
+import { Freshness } from "@/components/Freshness";
 import { EmptyState } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -27,11 +28,21 @@ const LOGO_MASK = {
   WebkitMaskPosition: "center",
 } as const;
 
-function CompanyList({ companies }: { companies: CompanyOut[] }) {
+function CompanyList({ companies: unsorted }: { companies: CompanyOut[] }) {
   const { ticker, setTicker } = useSelection();
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
 
-  // Seed the active company to the first (ticker-ordered) row once the list arrives.
+  // Ranked by market cap, largest first; companies with no computable market cap (missing price or
+  // shares_diluted) sort to the bottom rather than dropping out.
+  const companies = useMemo(
+    () =>
+      [...unsorted].sort(
+        (a, b) => (b.market_cap ?? -Infinity) - (a.market_cap ?? -Infinity),
+      ),
+    [unsorted],
+  );
+
+  // Seed the active company to the first (largest-market-cap) row once the list arrives.
   useEffect(() => {
     if (ticker == null && companies.length > 0) setTicker(companies[0].ticker);
   }, [companies, ticker, setTicker]);
@@ -176,6 +187,10 @@ export function Sidebar() {
           {(data) => <CompanyList companies={data} />}
         </AsyncBoundary>
       </ScrollArea>
+      <Separator />
+      <div className="shrink-0 px-4 py-3">
+        <Freshness />
+      </div>
     </nav>
   );
 }
