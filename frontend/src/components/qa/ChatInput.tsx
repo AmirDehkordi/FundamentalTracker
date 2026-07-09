@@ -1,4 +1,4 @@
-import { SendHorizontal } from "lucide-react";
+import { Loader2, SendHorizontal } from "lucide-react";
 import { useRef, useState, type KeyboardEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 export function ChatInput({
   onSend,
   disabled,
+  loading,
 }: {
   onSend: (question: string) => void;
   disabled?: boolean;
+  loading?: boolean;
 }) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -58,7 +60,11 @@ export function ChatInput({
         aria-label="Send"
         className="size-8 shrink-0"
       >
-        <SendHorizontal className="size-4" aria-hidden />
+        {loading ? (
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+        ) : (
+          <SendHorizontal className="size-4" aria-hidden />
+        )}
       </Button>
     </div>
   );

@@ -5,6 +5,11 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { friendlyTool } from "@/components/qa/labels";
 
 function argChips(args: Record<string, unknown>) {
@@ -40,8 +45,22 @@ export function TraceAccordion({ trace }: { trace: ToolTrace[] }) {
               <li key={i} className="text-13">
                 <div className="flex items-baseline gap-2">
                   <span className="tabular-nums text-fg-3">{i + 1}</span>
-                  <span className="text-fg-1">{friendlyTool(t.tool)}</span>
-                  <span className="font-mono text-xs text-fg-3">{t.tool}</span>
+                  {/* Human label; the raw tool code name moves to a tooltip to reduce noise. */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="cursor-help text-fg-1 underline decoration-fg-3 decoration-dotted underline-offset-2">
+                        {friendlyTool(t.tool)}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="font-mono text-xs">
+                      {t.tool}
+                    </TooltipContent>
+                  </Tooltip>
+                  {t.relaxed && (
+                    <span className="rounded bg-accent-bg px-1.5 py-0.5 text-xs font-medium text-brand">
+                      relaxed search
+                    </span>
+                  )}
                 </div>
                 {argChips(t.args)}
                 <p className="mt-1 text-xs text-fg-3">{t.result_summary}</p>
