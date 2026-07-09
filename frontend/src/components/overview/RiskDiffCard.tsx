@@ -1,7 +1,11 @@
 import { ExternalLink } from "lucide-react";
 
-import type { FilingRef, RiskDiffOut } from "@/api/contracts";
-import { useRiskDiff } from "@/api/queries";
+import type { FilingRef, RiskDiffOut, RiskSummaryItem } from "@/api/contracts";
+import {
+  RISK_SUMMARY_ENABLED,
+  useRiskDiff,
+  useRiskDiffSummary,
+} from "@/api/queries";
 import { AsyncBoundary } from "@/components/AsyncBoundary";
 import { Panel } from "@/components/Panel";
 import {
@@ -12,7 +16,75 @@ import {
 } from "@/components/ui/accordion";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { useSelection } from "@/state/selection";
+
+/** One tinted list ("Top new risks" neg, "Top reduced risks" pos): title + one-line detail per item. */
+function RiskList({
+  title,
+  tone,
+  items,
+}: {
+  title: string;
+  tone: "pos" | "neg";
+  items: RiskSummaryItem[];
+}) {
+  return (
+    <div>
+      <div
+        className={cn(
+          "mb-1 text-13 font-medium",
+          tone === "neg" ? "text-neg" : "text-pos",
+        )}
+      >
+        {title}
+      </div>
+      <ul className="space-y-1.5">
+        {items.map((it, i) => (
+          <li key={i} className="text-13 leading-snug">
+            <span className="font-medium text-fg-1">{it.title}</span>
+            <span className="text-fg-3"> — {it.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Lazy LLM summary of the risk-diff. Degrades gracefully (locked decision): a skeleton while loading,
+ * and the whole section HIDDEN on any non-200 (503/no-LLM/route-absent). Gated off by default — see
+ * RISK_SUMMARY_ENABLED — so it adds nothing until the backend ships the route.
+ */
+function RiskSummarySection({ ticker }: { ticker: string }) {
+  const q = useRiskDiffSummary(ticker);
+  if (!RISK_SUMMARY_ENABLED) return null;
+  if (q.isPending) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+    );
+  }
+  if (!q.isSuccess) return null;
+  const news = (q.data.new_risks ?? []).slice(0, 3);
+  const reduced = (q.data.reduced_risks ?? []).slice(0, 3);
+  if (news.length === 0 && reduced.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-border bg-surface-2 p-3">
+      <div className="text-xs uppercase tracking-wide text-fg-3">
+        AI summary
+      </div>
+      {news.length > 0 && (
+        <RiskList title="Top new risks" tone="neg" items={news} />
+      )}
+      {reduced.length > 0 && (
+        <RiskList title="Top reduced risks" tone="pos" items={reduced} />
+      )}
+    </div>
+  );
+}
 
 function Section({
   value,
@@ -78,16 +150,17 @@ function RiskDiffBody({ data }: { data: RiskDiffOut }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline gap-2 text-13 text-fg-2">
-        <span className="tabular-nums">
+        <span className="whitespace-nowrap tabular-nums">
           {latest ? `FY${latest.fiscal_year}` : "—"} vs{" "}
           {prior ? `FY${prior.fiscal_year}` : "—"}
         </span>
-        <span className="ml-auto tabular-nums">
+        <span className="ml-auto shrink-0 whitespace-nowrap tabular-nums">
           <span className="font-medium text-fg-1">{counts.added}</span> added ·{" "}
           <span className="font-medium text-fg-1">{counts.removed}</span>{" "}
           removed
         </span>
       </div>
+      <RiskSummarySection ticker={data.ticker} />
       <Accordion type="single" collapsible className="border-t border-border">
         <Section
           value="added"

@@ -18,7 +18,9 @@ function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <dt className="text-xs text-fg-3">{label}</dt>
-      <dd className="text-sm font-medium tabular-nums text-fg-1">{value}</dd>
+      <dd className="whitespace-nowrap text-sm font-medium tabular-nums text-fg-1">
+        {value}
+      </dd>
     </div>
   );
 }
@@ -60,24 +62,34 @@ function SignedStat({
       <dt className="text-xs text-fg-3">{label}</dt>
       <dd
         className={cn(
-          "flex items-center gap-0.5 text-sm font-medium tabular-nums",
+          "flex items-center gap-0.5 whitespace-nowrap text-sm font-medium tabular-nums",
           tone,
         )}
       >
-        {Arrow && <Arrow className="size-3.5" aria-hidden />}
+        {Arrow && <Arrow className="size-3.5 shrink-0" aria-hidden />}
         {text}
       </dd>
     </div>
   );
 }
 
-function WindowBlock({ w }: { w: InsiderWindow }) {
-  const title = w.days === 90 ? "Last 90 days" : "Last 365 days";
+/** Two windows collapse to one when the 365d aggregates equal the 90d ones (all activity is recent). */
+function windowsEqual(a: InsiderWindow, b: InsiderWindow): boolean {
+  return (
+    a.buy_count === b.buy_count &&
+    a.sell_count === b.sell_count &&
+    a.net_shares === b.net_shares &&
+    a.net_notional === b.net_notional
+  );
+}
+
+function WindowBlock({ w, title }: { w: InsiderWindow; title?: string }) {
+  const heading = title ?? (w.days === 90 ? "Last 90 days" : "Last 365 days");
   const empty = w.buy_count === 0 && w.sell_count === 0;
   return (
     <div className="rounded-md border border-border p-3">
       <div className="mb-2 text-xs uppercase tracking-wide text-fg-3">
-        {title}
+        {heading}
       </div>
       {empty ? (
         <p className="text-13 text-fg-3">No transactions in this window.</p>
@@ -119,13 +131,20 @@ function InsiderBody({
       </div>
     );
   }
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-2 gap-3">
-        <WindowBlock w={data.window_90d} />
-        <WindowBlock w={data.window_365d} />
+  if (windowsEqual(data.window_90d, data.window_365d)) {
+    return (
+      <div className="flex flex-col gap-2">
+        <WindowBlock w={data.window_365d} title="Insider transactions" />
+        <p className="text-xs text-fg-3">
+          All activity within the last 90 days.
+        </p>
       </div>
-      <p className="text-xs leading-snug text-fg-3">{data.caveat}</p>
+    );
+  }
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <WindowBlock w={data.window_90d} />
+      <WindowBlock w={data.window_365d} />
     </div>
   );
 }
