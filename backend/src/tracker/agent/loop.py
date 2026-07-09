@@ -152,6 +152,8 @@ def run(
             if _filing_has_content(tc.function.name, result):
                 filing_grounded = True
             if tc.function.name == "search_filings" and result.get("ok"):
+                # Reflects the LAST search of the turn; a [hits, then 0-hits] turn may trigger one
+                # harmless nudge. Bounded by _MAX_TURNS + the one-shot search_hint_used gate.
                 last_search_zero = not result.get("count", 0)
 
     return _finalize(client, model, messages, trace, deadline, usage, filing_grounded)

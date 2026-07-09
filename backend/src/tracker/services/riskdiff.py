@@ -35,8 +35,10 @@ EXCERPT_CHARS = 240  # per-paragraph excerpt cap
 # dropping marker-only lines, so pairing runs on real, per-risk-factor paragraphs.
 _PARAGRAPH_SPLIT = re.compile(r"\n+")
 # Page furniture / section chrome that reflows year over year and inflates the diff. Matched against
-# the whitespace-collapsed paragraph; most such lines are also caught by the <120-char floor.
-_PAGE_NUMBER = re.compile(r"^(page\s+)?\d{1,4}(\s*[|/].*)?$", re.IGNORECASE)
+# the whitespace-collapsed paragraph. A bare page number only (no greedy tail): "42 | Table of
+# Contents" footers are short and already caught by the <120-char floor, and a greedy tail would
+# wrongly drop real prose that merely opens with digits ("9/11-type events…", "1/3 of revenue…").
+_PAGE_NUMBER = re.compile(r"^(page\s+)?\d{1,4}$", re.IGNORECASE)
 _BOILERPLATE = re.compile(
     r"^(table of contents|item\s*1a\.?(\s*risk factors)?|risk factors|"
     r"part\s+[ivx]+|form\s*10-?k.*)$",
@@ -225,7 +227,9 @@ def _denoise(paragraphs: list[str]) -> list[str]:
         if _is_noise(para):
             continue
         words = _normalize(para).split()
-        if any(_word_ratio(words, kw) >= MERGE_THRESHOLD for kw in kept_words):
+        # Pass the threshold so the length/quick_ratio prunes inside _word_ratio engage — else this
+        # is a full O(n²) ratio() per filing. quick_ratio is an upper bound on ratio, so identical.
+        if any(_word_ratio(words, kw, MERGE_THRESHOLD) >= MERGE_THRESHOLD for kw in kept_words):
             continue  # a near-identical paragraph already kept this year
         kept.append(para)
         kept_words.append(words)

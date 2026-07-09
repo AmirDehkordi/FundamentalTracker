@@ -104,9 +104,10 @@ class RiskDiffSummaryData:
     note: str | None
 
 
-# In-process cache keyed by (cik, latest_fy, prior_fy). Small and bounded (5 companies × 1 pair);
-# no eviction needed. `clear_cache` lets tests assert a cache hit makes no second LLM call.
-_CACHE: dict[tuple[int, int, int], RiskDiffSummaryData] = {}
+# In-process cache keyed by (cik, item, latest_fy, prior_fy). Small and bounded (5 companies × 1
+# pair); no eviction needed. `item` is in the key so a future item="7" caller can't collide with 1A.
+# `clear_cache` lets tests assert a cache hit makes no second LLM call.
+_CACHE: dict[tuple[int, str, int, int], RiskDiffSummaryData] = {}
 
 
 def clear_cache() -> None:
@@ -128,7 +129,7 @@ def build_summary(client: Any, model: str, diff: RiskDiffResult) -> RiskDiffSumm
             note=diff.note,
         )
 
-    key = (diff.cik, diff.latest.fiscal_year, diff.prior.fiscal_year)
+    key = (diff.cik, diff.item, diff.latest.fiscal_year, diff.prior.fiscal_year)
     if key in _CACHE:
         return _CACHE[key]
 

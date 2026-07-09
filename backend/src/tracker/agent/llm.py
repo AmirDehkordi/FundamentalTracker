@@ -75,6 +75,9 @@ def llm_configured() -> bool:
     try:
         return bool(get_settings().llm_api_key.get_secret_value().strip())
     except Exception:  # settings fail to load (key absent entirely) -> not configured
+        logger.debug(
+            "llm_configured: settings unavailable, treating as not configured", exc_info=True
+        )
         return False
 
 

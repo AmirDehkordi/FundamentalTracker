@@ -147,6 +147,26 @@ def test_riskdiff_drops_page_furniture(db_session: Session) -> None:
     assert result.counts.added == 0 and result.counts.removed == 0
 
 
+def test_riskdiff_keeps_prose_that_opens_with_digits(db_session: Session) -> None:
+    # A real risk factor that merely BEGINS with digits ("9/11-type…", "1/3 of revenue…") must not
+    # be mistaken for page furniture and dropped — the page-number filter matches bare numbers only.
+    prior = (
+        "9/11-type catastrophic events, pandemics, and geopolitical conflict could disrupt our "
+        "global supply chain and materially reduce demand for our products across every segment."
+    )
+    latest = (
+        "1/3 of our revenue comes from a single hyperscale customer, and the loss of that customer "
+        "would materially and adversely affect our results of operations and our overall outlook."
+    )
+    _chunks(db_session, NVDA_CIK, NVDA_2024, 2024, [prior])
+    _chunks(db_session, NVDA_CIK, NVDA_2025, 2025, [latest])
+    db_session.commit()
+
+    result = riskdiff.diff_risk_factors(db_session, NVDA_CIK)
+    assert any("9/11" in r for r in result.removed)  # survived the filter
+    assert any("1/3" in a for a in result.added)
+
+
 def test_riskdiff_reconstruction_dedupes_overlap(db_session: Session) -> None:
     p1 = (
         "Paragraph one concerns market competition from established and emerging rivals, and the "
