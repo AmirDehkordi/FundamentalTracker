@@ -24,7 +24,11 @@ OVERLAP_PROBE = 400  # chars of head/tail scanned for the ~200-char inter-chunk 
 MIN_OVERLAP = 30  # ignore incidental short common runs when de-overlapping
 SIMILARITY_THRESHOLD = 0.75  # SequenceMatcher ratio at/above which two paragraphs are "unchanged"
 EXCERPT_CHARS = 240  # per-paragraph excerpt cap
-_PARAGRAPH_SPLIT = re.compile(r"\n\s*\n+")
+# Real EDGAR Item 1A text delimits each risk factor with a SINGLE newline (bullets sit on their own
+# "•" lines), not blank lines. Splitting only on blank lines collapsed the whole ~115KB section into
+# one paragraph, and _pair's O(n²) ratio() on two such blobs took ~100s. Split on any newline run,
+# dropping marker-only lines, so pairing runs on real, per-risk-factor paragraphs.
+_PARAGRAPH_SPLIT = re.compile(r"\n+")
 
 RISKDIFF_UNAVAILABLE_NOTE = (
     "Item 1A year-over-year diff unavailable: fewer than two fiscal years of extracted "
@@ -183,7 +187,8 @@ def _reconstruct(chunks: list[FilingChunk]) -> list[str]:
             text += chunk.text[match.size :]
         else:
             text += "\n\n" + chunk.text
-    return [p.strip() for p in _PARAGRAPH_SPLIT.split(text) if p.strip()]
+    # `any(isalnum)` drops bare bullet/marker lines (a lone "•") while keeping every real paragraph.
+    return [p.strip() for p in _PARAGRAPH_SPLIT.split(text) if any(ch.isalnum() for ch in p)]
 
 
 def _normalize(paragraph: str) -> str:
@@ -196,23 +201,53 @@ def _excerpt(paragraph: str) -> str:
 
 
 def _pair(prior_paras: list[str], latest_paras: list[str]) -> tuple[list[str], list[str], int]:
-    """Greedy best-ratio pairing. Returns (added, removed, unchanged_count)."""
+    """Greedy best-ratio pairing. Returns (added, removed, unchanged_count).
+
+    Real 10-Ks carry ~250 Item 1A paragraphs and reuse most of them verbatim year over year, so an
+    all-pairs SequenceMatcher (256² builds) was pathologically slow. Pair identical paragraphs first
+    in O(n) — that is exactly what the ratio=1.0 sort did anyway — then fuzzy-match only the changed
+    residual, skipping length-incompatible pairs before building a matcher at all."""
     prior_n = [_normalize(p) for p in prior_paras]
     latest_n = [_normalize(p) for p in latest_paras]
+    used_prior: set[int] = set()
+    used_latest: set[int] = set()
+
+    # Exact matches: identical normalised paragraphs are trivially unchanged (ratio 1.0 wins the
+    # greedy sort anyway). Consuming them here shrinks the O(n²) fuzzy search to the real diff.
+    latest_by_text: dict[str, list[int]] = {}
+    for j, ln in enumerate(latest_n):
+        latest_by_text.setdefault(ln, []).append(j)
+    for i, pn in enumerate(prior_n):
+        bucket = latest_by_text.get(pn)
+        if bucket:
+            used_prior.add(i)
+            used_latest.add(bucket.pop())
 
     candidates: list[tuple[float, int, int]] = []
-    for i, pn in enumerate(prior_n):
-        for j, ln in enumerate(latest_n):
-            matcher = SequenceMatcher(None, pn, ln, autojunk=False)
-            if matcher.quick_ratio() < SIMILARITY_THRESHOLD:  # cheap upper bound prefilter
+    for i in range(len(prior_n)):
+        if i in used_prior:
+            continue
+        pn = prior_n[i]
+        for j in range(len(latest_n)):
+            if j in used_latest:
+                continue
+            ln = latest_n[j]
+            # O(1) length bound: ratio = 2·M/(la+lb) ≤ 2·min(la,lb)/(la+lb); skip before building a
+            # matcher when even a perfect overlap can't reach the threshold.
+            la, lb = len(pn), len(ln)
+            if 2.0 * min(la, lb) / (la + lb) < SIMILARITY_THRESHOLD:
+                continue
+            # autojunk=True (default): treat very common characters as junk. On multi-hundred-char
+            # 1A paragraphs it makes find_longest_match ~100x faster; the ratio shift is immaterial
+            # to a 0.75 threshold. (_reconstruct keeps autojunk off — it needs the exact overlap.)
+            matcher = SequenceMatcher(None, pn, ln)
+            if matcher.quick_ratio() < SIMILARITY_THRESHOLD:  # O(n) char-multiset upper bound
                 continue
             ratio = matcher.ratio()
             if ratio >= SIMILARITY_THRESHOLD:
                 candidates.append((ratio, i, j))
 
     candidates.sort(key=lambda t: (-t[0], t[1], t[2]))  # best first; (i, j) tie-break = determinism
-    used_prior: set[int] = set()
-    used_latest: set[int] = set()
     for _ratio, i, j in candidates:
         if i in used_prior or j in used_latest:
             continue
