@@ -68,6 +68,8 @@ function ChartSection({
  * Cross-company comparison: two aligned charts (latest-FY level + its YoY change) sharing one sort
  * order, an exact-values table, and a basis caption. The YoY chart is derived client-side from each
  * company's own fundamentals (the compare endpoint returns only the level), degrading per-company.
+ * Metrics where YoY is never meaningful (see YOY_ELIGIBLE) fall back to a single full-width chart
+ * instead of a two-column grid with an empty second panel.
  */
 export function ComparePanel({ metric }: { metric: string }) {
   const query = useCompare(metric);
@@ -133,27 +135,31 @@ export function ComparePanel({ metric }: { metric: string }) {
               : undefined;
           return (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {yoyEligible ? (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  <ChartSection title="Latest fiscal year">
+                    <CompareChart rows={lrows} signed={signed} />
+                  </ChartSection>
+                  <ChartSection title="Year-over-year change">
+                    {all.isPending ? (
+                      <Skeleton className="h-[260px] w-full" />
+                    ) : all.allError ? (
+                      <EmptyState>
+                        Year-over-year data is unavailable.
+                      </EmptyState>
+                    ) : (
+                      <CompareChart
+                        rows={rrows}
+                        valueFormat={yoyFormat(metric)}
+                      />
+                    )}
+                  </ChartSection>
+                </div>
+              ) : (
                 <ChartSection title="Latest fiscal year">
                   <CompareChart rows={lrows} signed={signed} />
                 </ChartSection>
-                <ChartSection title="Year-over-year change">
-                  {!yoyEligible ? (
-                    <EmptyState>
-                      Year-over-year isn&apos;t meaningful for this metric.
-                    </EmptyState>
-                  ) : all.isPending ? (
-                    <Skeleton className="h-[260px] w-full" />
-                  ) : all.allError ? (
-                    <EmptyState>Year-over-year data is unavailable.</EmptyState>
-                  ) : (
-                    <CompareChart
-                      rows={rrows}
-                      valueFormat={yoyFormat(metric)}
-                    />
-                  )}
-                </ChartSection>
-              </div>
+              )}
               <CompareTable
                 rows={lrows}
                 signed={signed}
