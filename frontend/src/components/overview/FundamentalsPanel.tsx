@@ -4,13 +4,39 @@ import { Panel } from "@/components/Panel";
 import { FundamentalsTable } from "@/components/overview/FundamentalsTable";
 import { EmptyState } from "@/components/states";
 import { Skeleton } from "@/components/ui/skeleton";
+import { METRIC_ROWS } from "@/lib/metrics";
 import { useSelection } from "@/state/selection";
+
+// Mirrors FundamentalsTable's actual row structure (group headers + metric rows) so the
+// skeleton's height matches the real table and doesn't shove EarningsQuality/CapexIntensity
+// down the page once data arrives.
+const SKELETON_GROUPS = Array.from(
+  new Set(METRIC_ROWS.map((m) => m.group)),
+).map((group) => ({
+  group,
+  rows: METRIC_ROWS.filter((m) => m.group === group).length,
+}));
 
 function TableSkeleton() {
   return (
-    <div className="space-y-2">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <Skeleton key={i} className="h-8 w-full" />
+    <div className="w-full">
+      <div className="flex h-10 items-center border-b border-border px-2">
+        <Skeleton className="h-3.5 w-16" />
+      </div>
+      {SKELETON_GROUPS.map(({ group, rows }) => (
+        <div key={group}>
+          <div className="flex h-8 items-end px-2 pb-1 pt-3">
+            <Skeleton className="h-3 w-24" />
+          </div>
+          {Array.from({ length: rows }).map((_, i) => (
+            <div
+              key={i}
+              className="flex h-[34px] items-center border-b border-border px-2"
+            >
+              <Skeleton className="h-3.5 w-32" />
+            </div>
+          ))}
+        </div>
       ))}
     </div>
   );

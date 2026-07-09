@@ -35,8 +35,7 @@ import { cn } from "@/lib/utils";
 
 const NONE_TOOLTIP: Record<string, string> = {
   fcf_conversion: "No year-over-year — a ratio has no meaningful YoY.",
-  incremental_operating_margin:
-    "Incremental operating margin is itself a year-over-year measure.",
+  reinvestment_ratio: "No year-over-year — a ratio has no meaningful YoY.",
 };
 
 const STICKY =
@@ -146,8 +145,8 @@ export function FundamentalsTable({ rows }: { rows: FundamentalsRow[] }) {
             <TableHead key={r.fiscal_year} className="text-right align-bottom">
               <div className="flex flex-col items-end leading-tight">
                 <span className="font-medium text-fg-2">FY{r.fiscal_year}</span>
-                <span className="font-normal text-fg-3">
-                  ended {formatDayMonthYear(r.period_end)}
+                <span className="whitespace-nowrap text-[11px] font-normal text-fg-3">
+                  e. {formatDayMonthYear(r.period_end)}
                 </span>
               </div>
             </TableHead>
@@ -155,7 +154,9 @@ export function FundamentalsTable({ rows }: { rows: FundamentalsRow[] }) {
           <TableHead className="text-right align-bottom">
             <div className="flex flex-col items-end leading-tight">
               <span className="font-medium text-fg-2">YoY</span>
-              <span className="font-normal text-fg-3">(latest FY)</span>
+              <span className="whitespace-nowrap text-[11px] font-normal text-fg-3">
+                (latest FY)
+              </span>
             </div>
           </TableHead>
         </tr>
@@ -171,7 +172,7 @@ export function FundamentalsTable({ rows }: { rows: FundamentalsRow[] }) {
                 <tr>
                   <td
                     colSpan={cols}
-                    className="border-b border-border bg-surface-1 px-2 pb-1 pt-3 text-xs uppercase tracking-wide text-fg-3"
+                    className="border-b border-border bg-surface-1 px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-fg-2"
                   >
                     {GROUP_LABELS[meta.group]}
                   </td>
