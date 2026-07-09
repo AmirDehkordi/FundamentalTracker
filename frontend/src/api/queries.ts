@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/api/client";
 import type {
@@ -11,6 +11,7 @@ import type {
   InsiderSummaryOut,
   PricesOut,
   RiskDiffOut,
+  RiskDiffSummaryOut,
   ValuationOut,
 } from "@/api/contracts";
 
@@ -53,6 +54,28 @@ export function useFundamentals(ticker: string | null) {
 }
 
 /**
+ * All companies' fundamentals in parallel, reusing the per-ticker ["fundamentals", t] cache so the
+ * Compare tab shares the Overview tab's fetches. Partial failures degrade (a company drops out); only
+ * an all-failed result is treated as an error. Powers the client-side per-company YoY on Compare.
+ */
+export function useAllFundamentals(tickers: string[]) {
+  return useQueries({
+    queries: tickers.map((t) => ({
+      queryKey: ["fundamentals", t],
+      queryFn: () =>
+        apiFetch<FundamentalsOut>(`/api/companies/${t}/fundamentals`),
+    })),
+    combine: (results) => ({
+      byTicker: Object.fromEntries(
+        tickers.map((t, i) => [t, results[i]?.data]),
+      ) as Record<string, FundamentalsOut | undefined>,
+      isPending: results.some((r) => r.isPending),
+      allError: results.length > 0 && results.every((r) => r.isError),
+    }),
+  });
+}
+
+/**
  * Daily prices + 10-K markers. Always fetches the full 2y window; the chart slices it client-side per
  * range selector, so switching ranges is instant and re-uses one cache entry.
  */
@@ -71,6 +94,27 @@ export function useRiskDiff(ticker: string | null) {
     queryKey: ["risk-diff", ticker],
     queryFn: () => apiFetch<RiskDiffOut>(`/api/companies/${ticker}/risk-diff`),
     enabled: ticker != null,
+  });
+}
+
+/**
+ * Off by default: the LLM risk-diff summary route does not exist on the frozen backend yet, and firing
+ * a guaranteed-404 on every overview would add console noise. Flip VITE_RISK_SUMMARY=1 once the backend
+ * ships GET /api/companies/{ticker}/risk-diff/summary; the card then renders it (and still hides on a
+ * 503/no-LLM), so the frontend is ready with no further change.
+ */
+export const RISK_SUMMARY_ENABLED = import.meta.env.VITE_RISK_SUMMARY === "1";
+
+/** Lazy LLM summary of the Item 1A risk-diff. Fails once and hides the section (retry: false). */
+export function useRiskDiffSummary(ticker: string | null) {
+  return useQuery<RiskDiffSummaryOut, ApiError>({
+    queryKey: ["risk-diff-summary", ticker],
+    queryFn: () =>
+      apiFetch<RiskDiffSummaryOut>(
+        `/api/companies/${ticker}/risk-diff/summary`,
+      ),
+    enabled: RISK_SUMMARY_ENABLED && ticker != null,
+    retry: false,
   });
 }
 
