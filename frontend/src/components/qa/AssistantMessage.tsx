@@ -13,13 +13,13 @@ function Followups({ items }: { items: string[] }) {
   if (items.length === 0) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {items.map((q) => (
+      {items.map((q, i) => (
         <button
-          key={q}
+          key={`${i}-${q}`}
           type="button"
           disabled={isThinking}
           onClick={() => send(q)}
-          className="rounded-full border border-border px-2.5 py-1 text-xs text-fg-2 transition-colors hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+          className="rounded-full border border-border px-2.5 py-1 text-xs text-fg-2 transition-colors hover:border-brand hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
           {q}
         </button>
@@ -43,7 +43,7 @@ export function AssistantMessage({ answer }: { answer: FinalAnswer }) {
   if (answer.kind === "clarification") {
     return (
       <div className="rounded-md border border-border p-3">
-        <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-accent">
+        <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-brand">
           <MessageCircleQuestion className="size-3.5" aria-hidden />
           One quick question
         </div>
@@ -66,8 +66,8 @@ export function AssistantMessage({ answer }: { answer: FinalAnswer }) {
       <div
         className="rounded-md border p-3"
         style={{
-          backgroundColor: "rgba(251,191,36,0.10)",
-          borderColor: "rgba(251,191,36,0.35)",
+          backgroundColor: "rgba(217,142,60,0.10)",
+          borderColor: "rgba(217,142,60,0.35)",
         }}
       >
         <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-warn">

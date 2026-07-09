@@ -101,7 +101,8 @@ export interface FreshnessOut {
 // Fundamentals matrix. `rows` is chronological ascending; the UI takes the last N. `metrics` carries
 // raw concepts + fcf + margins + fcf_conversion; `yoy` carries raw-level % YoY, the margins +
 // fcf_conversion as percentage_points, incremental_operating_margin (ratio), and the dollar deltas
-// delta_revenue / delta_operating_income (USD) the incremental-margin card plots.
+// delta_revenue / delta_operating_income (USD). (The incremental-margin card derives those deltas
+// client-side from consecutive `metrics` rows, so it degrades even if the yoy fields are absent.)
 export interface FundamentalsRow {
   fiscal_year: number;
   period_end: string;

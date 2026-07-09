@@ -98,9 +98,10 @@ export function QAPanel({
                   </div>
                 ) : (
                   // Every user turn renders as a bubble (settled ones here; the in-flight one below).
-                  // Assistant turns render by kind: answer / declined (warn) / error (Retry, below).
-                  // The frozen backend has no distinct "clarification" kind or suggested_followups, so
-                  // those degrade to the declined style and the static example chips (no dynamic chips).
+                  // Assistant turns render by kind (answer / clarification / declined / error) with
+                  // follow-up chips when provided — see AssistantMessage. Transport errors show a Retry
+                  // row below; if the backend omits kind/suggested_followups, AssistantMessage defaults
+                  // to a plain answer with no chips.
                   <ExchangeList exchanges={exchanges} />
                 )}
                 {pending !== null && <UserMessage text={pending} />}
