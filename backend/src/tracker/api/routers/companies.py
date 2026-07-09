@@ -11,9 +11,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from tracker.agent import riskdiff_summary
+from tracker.agent import riskdiff_summary, riskdiff_themes
 from tracker.api import schemas
-from tracker.api.deps import require_company, require_llm_client
+from tracker.api.deps import optional_llm_client, require_company, require_llm_client
 from tracker.config import get_settings
 from tracker.db.session import get_session
 from tracker.services import fundamentals, insider, prices, riskdiff, valuation
@@ -122,6 +122,30 @@ def company_risk_diff_summary(
     except riskdiff_summary.RiskSummaryUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Risk summary unavailable: {exc}") from exc
     return schemas.RiskDiffSummaryOut.model_validate(summary)
+
+
+@router.get(
+    "/companies/{ticker}/risk-diff/themes",
+    response_model=schemas.RiskDiffThemesOut,
+    summary="Top-3 added and top-3 removed risk themes (Item 1A)",
+    responses={
+        **_NOT_FOUND,
+        503: {"model": schemas.ErrorOut, "description": "No cached themes and no LLM configured"},
+    },
+)
+def company_risk_diff_themes(
+    company: fundamentals.CompanyRef = Depends(require_company),
+    session: Session = Depends(get_session),
+    client: Any | None = Depends(optional_llm_client),
+) -> schemas.RiskDiffThemesOut:
+    diff = riskdiff.diff_risk_factors(session, company.cik, item="1A")
+    try:
+        themes = riskdiff_themes.get_or_build_themes(
+            session, client, get_settings().llm_model, diff
+        )
+    except riskdiff_themes.RiskThemesUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Risk themes unavailable: {exc}") from exc
+    return schemas.RiskDiffThemesOut.model_validate(themes)
 
 
 @router.get(

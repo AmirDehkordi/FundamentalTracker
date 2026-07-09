@@ -1,7 +1,7 @@
 # Local/macOS developer entrypoints. CI calls the underlying tools directly (see .github/workflows).
 .DEFAULT_GOAL := help
 .PHONY: help setup db-up db-down init-db ingest ingest-cache run test test-all verify \
-        evals seed-dump fresh-check web-setup web-verify
+        evals cache-risk-themes seed-dump fresh-check web-setup web-verify
 
 # Backend gate restored to 80 (metrics engine + ingestion carry real logic), per CLAUDE.md and
 # PLAN.md §11. Services carry a tighter 90 gate — that is where correctness lives. Agent carries an
@@ -61,6 +61,9 @@ web-verify: ## Frontend: typecheck + lint + format check + production build (nee
 
 evals: ## Run the eval question set against a running /api/ask (needs a live LLM key)
 	uv run python -m evals.run
+
+cache-risk-themes: ## Precompute + cache Item 1A risk themes for the tracked universe (needs a live LLM key)
+	uv run python scripts/build_risk_themes.py
 
 seed-dump: ## Dump the dev DB to seed/init/01_seed.sql.gz (auto-restored on a fresh clone)
 	bash scripts/make_seed.sh

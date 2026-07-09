@@ -36,3 +36,12 @@ def require_llm_client() -> Any:
             detail="Natural-language summary unavailable: no LLM is configured.",
         )
     return llm.get_llm_client()
+
+
+def optional_llm_client() -> Any | None:
+    """The LLM client if configured, else None — for endpoints that can serve a cached result with
+    no LLM at all (unlike require_llm_client, unconfigured is not itself an error here). Tests
+    override this to inject the fake client or None."""
+    if not llm.llm_configured():
+        return None
+    return llm.get_llm_client()

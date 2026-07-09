@@ -4,6 +4,8 @@ Mimics exactly the surface loop.py touches: `client.chat.completions.create(**kw
 objects with `choices[0].message.{content, tool_calls[i].id/.type/.function.name/.arguments}` and
 `usage.prompt_tokens/.completion_tokens`. Responses are popped in order; a scripted `Exception` is
 raised (to drive the OpenAI-error paths). Built from `SimpleNamespace`, not MagicMock (repo idiom).
+`with_options()` also mimics the real SDK (riskdiff_themes.py overrides the per-call timeout) —
+it returns the same instance since the fake enforces no timeout either way.
 """
 
 from __future__ import annotations
@@ -111,3 +113,6 @@ class FakeOpenAI:
         if isinstance(nxt, Exception):
             raise nxt
         return nxt
+
+    def with_options(self, **_kwargs: Any) -> FakeOpenAI:
+        return self
