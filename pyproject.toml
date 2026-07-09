@@ -25,6 +25,8 @@ dev = [
     "respx",
     "ruff",
     "mypy",
+    "pyyaml",        # evals/questions.yaml parsing + the CI-safe structure test
+    "types-pyyaml",  # stubs so mypy covers the eval runner
 ]
 
 [build-system]
@@ -39,7 +41,7 @@ packages = ["backend/src/tracker"]
 # ----------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
-src = ["backend/src", "scripts", "backend/tests"]
+src = ["backend/src", "scripts", "backend/tests", "evals"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "A"]
@@ -60,7 +62,7 @@ extend-immutable-calls = ["fastapi.Depends"]
 # ----------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.12"
-files = ["backend/src"]
+files = ["backend/src", "evals"]
 disallow_untyped_defs = true
 warn_return_any = true
 ignore_missing_imports = true
