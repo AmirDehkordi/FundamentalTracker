@@ -38,6 +38,15 @@ function toHistory(exchanges: Exchange[]): Message[] {
   ]);
 }
 
+// The id is only a React key. crypto.randomUUID throws outside a secure context (plain HTTP on a
+// non-localhost host), so fall back rather than crash the render and drop the answer.
+function newExchangeId(): string {
+  return (
+    crypto.randomUUID?.() ??
+    `ex-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+}
+
 /**
  * Owns the Q&A conversation AND the ask mutation, mounted above the Sheet so both survive its
  * unmount on close (a request fired then closed still lands its answer). One request is in flight at
@@ -57,7 +66,7 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
         onSuccess: (answer) => {
           setExchanges((prev) => [
             ...prev,
-            { id: crypto.randomUUID(), question: req.question, answer },
+            { id: newExchangeId(), question: req.question, answer },
           ]);
           setPending(null);
         },
