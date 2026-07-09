@@ -12,7 +12,7 @@ from importlib import metadata
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from tracker.api.routers import companies, compare, health, meta
+from tracker.api.routers import ask, companies, compare, health, meta
 
 FRONTEND_ORIGIN = "http://localhost:5173"
 
@@ -35,5 +35,6 @@ def create_app() -> FastAPI:
     app.include_router(companies.router, prefix="/api")
     app.include_router(compare.router, prefix="/api")
     app.include_router(meta.router, prefix="/api")
+    app.include_router(ask.router, prefix="/api")
     app.include_router(health.router)  # root; tagged "meta"
     return app
