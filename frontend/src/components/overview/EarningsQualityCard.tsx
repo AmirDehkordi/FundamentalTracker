@@ -20,19 +20,23 @@ import {
   axisBase,
   gridProps,
 } from "@/components/charts/chartTheme";
-import { makeFyTick, type SubLabel } from "@/components/charts/DualAxisTick";
+import { makeFyTick } from "@/components/charts/DualAxisTick";
+import { ChartLegend } from "@/components/charts/ChartLegend";
 import { EmptyState } from "@/components/states";
 import { Skeleton } from "@/components/ui/skeleton";
 import { describeMetric, formatPercent } from "@/lib/format";
 import { metricAt } from "@/lib/metrics";
 import { useSelection } from "@/state/selection";
 
+// Paired with OperatingLeverage/IncrementalOperatingMargin: identical container height (200) + margin +
+// XAxis height (40) so both FY category axes land on one baseline.
+const CHART_HEIGHT = 200;
+
 interface EqDatum {
   fy: string;
   fcfMargin: number | null;
   convText: string;
   convNote: string | null;
-  convMuted: boolean;
 }
 
 function toData(rows: FundamentalsRow[]): EqDatum[] {
@@ -43,9 +47,17 @@ function toData(rows: FundamentalsRow[]): EqDatum[] {
       fcfMargin: metricAt(r.metrics, "fcf_margin").value,
       convText: conv.text,
       convNote: conv.missing ? conv.tooltip : null,
-      convMuted: conv.missing,
     };
   });
+}
+
+// Round y ticks at 10-point steps up to the rounded max (at least 40%), so gridlines read 0/10/20/30/40%.
+function roundTicks(data: EqDatum[]): { ticks: number[]; top: number } {
+  const max = Math.max(0, ...data.map((d) => d.fcfMargin ?? 0));
+  const top = Math.max(0.4, Math.ceil(max / 0.1) * 0.1);
+  const ticks: number[] = [];
+  for (let t = 0; t <= top + 1e-9; t += 0.1) ticks.push(Number(t.toFixed(2)));
+  return { ticks, top };
 }
 
 function EqTooltip({ active, payload }: TooltipProps<number, string>) {
@@ -78,43 +90,53 @@ function EarningsQualityChart({ rows }: { rows: FundamentalsRow[] }) {
       </EmptyState>
     );
   }
-  const sub: Record<string, SubLabel> = Object.fromEntries(
-    data.map((d) => [d.fy, { text: d.convText, muted: d.convMuted }]),
-  );
+  const { ticks, top } = roundTicks(data);
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <ComposedChart data={data} margin={CHART_MARGIN}>
-        <CartesianGrid {...gridProps} />
-        <XAxis
-          dataKey="fy"
-          {...axisBase}
-          tick={makeFyTick(sub)}
-          interval={0}
-          height={40}
-        />
-        <YAxis
-          {...axisBase}
-          width={44}
-          tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
-        />
-        <RTooltip
-          content={<EqTooltip />}
-          cursor={{ fill: "rgba(110,168,254,0.06)" }}
-        />
-        <Bar
-          dataKey="fcfMargin"
-          fill={CHART.accent}
-          radius={[2, 2, 0, 0]}
-          maxBarSize={44}
-          isAnimationActive={false}
-        />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <div>
+      <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+        <ComposedChart data={data} margin={CHART_MARGIN}>
+          <CartesianGrid {...gridProps} />
+          {/* Single-line FY axis (conversion moved off the ticks into the legend/tooltip); height 40 to
+              align its baseline with the incremental-margin card's two-line axis. */}
+          <XAxis
+            dataKey="fy"
+            {...axisBase}
+            tick={makeFyTick({})}
+            interval={0}
+            height={40}
+          />
+          <YAxis
+            {...axisBase}
+            width={44}
+            domain={[0, top]}
+            ticks={ticks}
+            tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
+          />
+          <RTooltip
+            content={<EqTooltip />}
+            cursor={{ fill: "rgba(224,166,78,0.06)" }}
+          />
+          <Bar
+            dataKey="fcfMargin"
+            fill={CHART.accent}
+            radius={[2, 2, 0, 0]}
+            maxBarSize={44}
+            isAnimationActive={false}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+      <ChartLegend
+        items={[
+          { label: "FCF margin", color: CHART.accent },
+          { label: "FCF conversion — on hover", color: CHART.text3 },
+        ]}
+      />
+    </div>
   );
 }
 
-/** FCF margin by FY (bars) with FCF conversion beneath each year. */
+/** FCF margin by FY (bars), round y ticks; FCF conversion is labelled in the legend and shown on hover. */
 export function EarningsQualityCard() {
   const { ticker } = useSelection();
   const query = useFundamentals(ticker);
@@ -122,11 +144,11 @@ export function EarningsQualityCard() {
   return (
     <Panel
       title="Earnings quality"
-      info="Bars: FCF margin. Below each year: FCF conversion (free cash flow ÷ net income)."
+      info="Bars: FCF margin (free cash flow ÷ revenue). FCF conversion (free cash flow ÷ net income) on hover."
     >
       <AsyncBoundary
         query={query}
-        skeleton={<Skeleton className="h-[200px] w-full" />}
+        skeleton={<Skeleton className="h-[232px] w-full" />}
         errorTitle="Couldn't load fundamentals"
         isEmpty={(d) => d.rows.length < 2}
         empty={<EmptyState>Not enough history yet.</EmptyState>}
