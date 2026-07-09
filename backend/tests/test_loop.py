@@ -146,12 +146,12 @@ def test_citation_enforcement_retry(db_session: Session) -> None:
     assert len(client.calls) == 3
 
 
-def test_filing_tool_answer_without_filing_citation_retries(db_session: Session) -> None:
-    # search_filings was used but the first final answer cites only a fundamental -> the loop
-    # retries once for a filing citation and accepts the corrected answer.
+def test_filing_tool_with_hits_retries_for_missing_filing_citation(db_session: Session) -> None:
+    # search_filings returned real hits but the first final answer cites only a fundamental -> the
+    # loop retries once for a filing citation and accepts the corrected answer.
     client = FakeOpenAI(
         [
-            tool_response(tool_call("c1", "search_filings", {"ticker": "AAPL", "query": "risk"})),
+            tool_response(tool_call("c1", "search_filings", {"ticker": "AAPL", "query": "supply"})),
             stop_turn(),
             final_response({"answer_md": "Risks include supply.", "citations": [_CIT]}),
             final_response(
@@ -162,6 +162,23 @@ def test_filing_tool_answer_without_filing_citation_retries(db_session: Session)
     answer = _run(db_session, client)
     assert any(c.source_type == "filing" for c in answer.citations)  # the retry supplied it
     assert len(client.calls) == 4
+
+
+def test_no_hit_filing_search_does_not_demand_a_citation(db_session: Session) -> None:
+    # A count=0 search returned no citable text, so the loop must NOT retry demanding a filing
+    # citation the model cannot honestly supply (it would pressure a fabricated url/accession).
+    client = FakeOpenAI(
+        [
+            tool_response(
+                tool_call("c1", "search_filings", {"ticker": "AAPL", "query": "zznomatchqq"})
+            ),
+            stop_turn(),
+            final_response({"answer_md": "No matching passages were found.", "citations": []}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is False
+    assert len(client.calls) == 3  # no 4th (retry) call — nothing citable was returned
 
 
 def test_arg_validation_surfaces_as_tool_error(db_session: Session) -> None:
