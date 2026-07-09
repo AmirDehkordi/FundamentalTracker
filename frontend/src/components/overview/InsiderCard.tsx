@@ -16,7 +16,7 @@ import { useSelection } from "@/state/selection";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="flex flex-col items-center gap-0.5 text-center">
       <dt className="text-xs text-fg-3">{label}</dt>
       <dd className="whitespace-nowrap text-sm font-medium tabular-nums text-fg-1">
         {value}
@@ -39,7 +39,7 @@ function SignedStat({
 }) {
   if (value == null) {
     return (
-      <div>
+      <div className="flex flex-col items-center gap-0.5 text-center">
         <dt className="text-xs text-fg-3">{label}</dt>
         <dd>
           <Tooltip>
@@ -58,11 +58,11 @@ function SignedStat({
   const Arrow = value > 0 ? ArrowUp : value < 0 ? ArrowDown : null;
   const text = kind === "usd" ? formatUsd(value) : `${formatShares(value)} sh`;
   return (
-    <div>
+    <div className="flex flex-col items-center gap-0.5 text-center">
       <dt className="text-xs text-fg-3">{label}</dt>
       <dd
         className={cn(
-          "flex items-center gap-0.5 whitespace-nowrap text-sm font-medium tabular-nums",
+          "flex items-center justify-center gap-0.5 whitespace-nowrap text-sm font-medium tabular-nums",
           tone,
         )}
       >
@@ -94,7 +94,7 @@ function WindowBlock({ w, title }: { w: InsiderWindow; title?: string }) {
       {empty ? (
         <p className="text-13 text-fg-3">No transactions in this window.</p>
       ) : (
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+        <dl className="grid grid-cols-2 justify-items-center gap-x-6 gap-y-4">
           <Stat label="Buys" value={String(w.buy_count)} />
           <Stat label="Sells" value={String(w.sell_count)} />
           <SignedStat
@@ -131,20 +131,28 @@ function InsiderBody({
       </div>
     );
   }
-  if (windowsEqual(data.window_90d, data.window_365d)) {
-    return (
-      <div className="flex flex-col gap-2">
-        <WindowBlock w={data.window_365d} title="Insider transactions" />
-        <p className="text-xs text-fg-3">
-          All activity within the last 90 days.
-        </p>
-      </div>
-    );
-  }
+  const collapsed = windowsEqual(data.window_90d, data.window_365d);
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <WindowBlock w={data.window_90d} />
-      <WindowBlock w={data.window_365d} />
+    <div className="flex flex-col gap-2">
+      {collapsed ? (
+        <>
+          <WindowBlock w={data.window_365d} title="Insider transactions" />
+          <p className="text-xs text-fg-3">
+            All activity within the last 90 days.
+          </p>
+        </>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <WindowBlock w={data.window_90d} />
+          <WindowBlock w={data.window_365d} />
+        </div>
+      )}
+      {data.history_capped && (
+        <p className="text-xs text-fg-3">
+          Only the most recently filed transactions are ingested — earlier
+          insider activity may exist but isn&apos;t reflected here.
+        </p>
+      )}
     </div>
   );
 }
@@ -158,6 +166,7 @@ export function InsiderCard() {
     <Panel
       title="Insider activity"
       info="Form 4 open-market buys (code P) vs sells (code S). Windows anchor to the latest filing, not today."
+      fillHeight={false}
     >
       <AsyncBoundary
         query={query}
