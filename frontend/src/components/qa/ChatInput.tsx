@@ -38,7 +38,7 @@ export function ChatInput({
   };
 
   return (
-    <div className="flex items-end gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 focus-within:ring-2 focus-within:ring-ring">
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 focus-within:ring-2 focus-within:ring-ring">
       <textarea
         ref={ref}
         rows={2}
@@ -49,7 +49,7 @@ export function ChatInput({
           grow(e.target);
         }}
         onKeyDown={onKeyDown}
-        placeholder="Ask about fundamentals, filings, prices, or insider activity"
+        placeholder="Type your question…"
         aria-label="Ask a question"
         // Taller default (min-h) with a larger cap; the internal scrollbar is hidden so it stays clean
         // next to the send button (Enter sends before it ever needs to scroll far anyway).

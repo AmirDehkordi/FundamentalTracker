@@ -91,7 +91,7 @@ export function TopBar({
           </div>
           <Button size="sm" onClick={onAskClick}>
             <MessageSquareText className="size-4" aria-hidden />
-            Ask
+            Ask SchonAmirAI
           </Button>
         </div>
       </div>

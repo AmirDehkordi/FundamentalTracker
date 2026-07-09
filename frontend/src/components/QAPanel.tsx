@@ -60,7 +60,7 @@ export function QAPanel({
           <SheetHeader className="space-y-1 border-b border-border p-4 text-left">
             <div className="flex items-start justify-between gap-2">
               <SheetTitle className="text-sm font-semibold text-fg-1">
-                Ask
+                SchonAmirAI
               </SheetTitle>
               <div className="flex shrink-0 items-center gap-1">
                 <button
@@ -80,7 +80,9 @@ export function QAPanel({
                 </SheetClose>
               </div>
             </div>
-            <SheetDescription className="text-13 text-fg-3">
+            {/* Kept for screen readers (Radix needs a description) but hidden — the placeholder and the
+                example chips already tell a sighted user what to ask. */}
+            <SheetDescription className="sr-only">
               Ask about fundamentals, filings, prices, or insider activity.
               Answers cite their sources.
             </SheetDescription>
