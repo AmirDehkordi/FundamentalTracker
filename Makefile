@@ -4,9 +4,11 @@
         evals seed-dump fresh-check web-setup web-verify
 
 # Backend gate restored to 80 (metrics engine + ingestion carry real logic), per CLAUDE.md and
-# PLAN.md §11. Services carry a tighter 90 gate — that is where correctness lives.
+# PLAN.md §11. Services carry a tighter 90 gate — that is where correctness lives. Agent carries an
+# 85 gate: the routing/grounding loop is graded behaviour, so it must stay well covered.
 COV_FAIL_UNDER := 80
 SERVICES_COV_FAIL_UNDER := 90
+AGENT_COV_FAIL_UNDER := 85
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -47,6 +49,8 @@ verify: ## Backend format+lint+types+coverage gates, then the frontend typecheck
 		--cov-fail-under=$(COV_FAIL_UNDER)
 	uv run pytest -m "not integration" --cov=tracker.services --cov-report=term-missing \
 		--cov-fail-under=$(SERVICES_COV_FAIL_UNDER)
+	uv run pytest -m "not integration" --cov=tracker.agent --cov-report=term-missing \
+		--cov-fail-under=$(AGENT_COV_FAIL_UNDER)
 	$(MAKE) web-verify
 
 web-setup: ## Install frontend deps from the lockfile (needs Node 20)
