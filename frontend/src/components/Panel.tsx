@@ -16,6 +16,7 @@ export function Panel({
   actions,
   className,
   bodyClassName,
+  fillHeight = true,
   children,
 }: {
   title: string;
@@ -24,10 +25,14 @@ export function Panel({
   actions?: ReactNode;
   className?: string;
   bodyClassName?: string;
+  /** Stretch to fill the parent's height (default). False lets the card hug its own content. */
+  fillHeight?: boolean;
   children: ReactNode;
 }) {
   return (
-    <Card className={cn("flex h-full flex-col p-4", className)}>
+    <Card
+      className={cn("flex flex-col p-4", fillHeight && "h-full", className)}
+    >
       <div className="mb-3 flex min-h-6 items-center gap-1.5">
         <h2 className="text-xs uppercase tracking-wide text-fg-2">{title}</h2>
         {info && (
