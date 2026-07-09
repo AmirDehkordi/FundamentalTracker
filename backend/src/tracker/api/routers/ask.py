@@ -31,10 +31,17 @@ from tracker.db.session import get_sessionmaker
 router = APIRouter(tags=["ask"])
 logger = logging.getLogger("tracker.agent.api")
 
-_TIMEOUT_S = 30.0
-_SOFT_BUDGET_S = 27.0  # inner budget < hard timeout so the worker returns before it fires
-_MAX_QUESTION_CHARS = 4000  # AskRequest is frozen; bound oversized input here to cap cost/latency
+_TIMEOUT_S = 30.0  # hard wall-clock: the client is ALWAYS answered within this
+# _SOFT_BUDGET_S makes the loop stop starting new turns, but does NOT hard-bound the worker: a turn
+# begun just under it can still run one bounded LLM call (llm._CALL_TIMEOUT_S), so the worker may
+# outlive the response by up to that call. That is a brief, bounded resource hold — the worker owns
+# and closes its own session (see module docstring), so it is never a cross-thread race or a leak.
+_SOFT_BUDGET_S = 27.0
+# AskRequest is frozen, so bound oversized input HERE to cap cost/latency (question chars, history
+# turns, and total question+history content so many small turns can't add up unbounded).
+_MAX_QUESTION_CHARS = 4000
 _MAX_HISTORY_TURNS = 20
+_MAX_TOTAL_CHARS = 24000
 
 
 def get_session_factory() -> sessionmaker[Session]:
@@ -50,7 +57,12 @@ async def ask(
     client: Any = Depends(get_llm_client),  # `Any` keeps `import openai` out of the api layer
 ) -> schemas.FinalAnswer:
     started = time.perf_counter()
-    if len(req.question) > _MAX_QUESTION_CHARS or len(req.history) > _MAX_HISTORY_TURNS:
+    total_chars = len(req.question) + sum(len(m.content) for m in req.history)
+    if (
+        len(req.question) > _MAX_QUESTION_CHARS
+        or len(req.history) > _MAX_HISTORY_TURNS
+        or total_chars > _MAX_TOTAL_CHARS
+    ):
         return schemas.FinalAnswer(
             answer_md="That request is too large to process. Please shorten it.",
             declined=True,

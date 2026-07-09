@@ -146,7 +146,7 @@ def get_fundamentals(session: Session, args: GetFundamentalsArgs) -> dict[str, A
     if isinstance(company, dict):
         return company
     result = fundamentals.get_fundamentals(session, args.ticker)
-    if result is None:  # defensive: _resolve already caught unknown ticker
+    if result is None:  # pragma: no cover - defensive: _resolve already caught unknown ticker
         return _unknown_ticker(session, args.ticker)
 
     rows = result.rows  # chronological ascending
@@ -155,7 +155,7 @@ def get_fundamentals(session: Session, args: GetFundamentalsArgs) -> dict[str, A
 
     keep: set[str] | None = None
     ignored: list[str] = []
-    if args.concepts is not None:
+    if args.concepts:  # an explicit [] means 'no filter' (all metrics), same as omitting it
         keep = {c for c in args.concepts if c in _FUNDAMENTAL_KEYS}
         ignored = sorted(set(args.concepts) - keep)  # unknown names reported, never raised
 
