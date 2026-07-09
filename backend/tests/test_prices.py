@@ -23,6 +23,8 @@ def test_get_prices_rows_and_markers(db_session: Session) -> None:
     assert result.rows[-1].close == 179.0 and result.rows[-1].date == datetime.date(2026, 6, 30)
     assert len(result.filings) == 3  # AAPL FY2023-2025 10-Ks
     assert all(marker.form == "10-K" for marker in result.filings)
+    # Volume rides on every row per the frozen PriceRow contract (the chart plots it).
+    assert all(isinstance(r.volume, int) and r.volume > 0 for r in result.rows)
 
 
 def test_get_prices_range_window(db_session: Session) -> None:

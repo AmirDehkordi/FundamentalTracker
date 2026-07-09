@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from tracker.agent import llm
 from tracker.db.session import get_session
 from tracker.services import fundamentals
 
@@ -22,3 +25,14 @@ def require_company(
     if company is None:
         raise HTTPException(status_code=404, detail=f"Unknown ticker: {ticker}")
     return company
+
+
+def require_llm_client() -> Any:
+    """The LLM client for LLM-backed endpoints, or 503 when no key is configured (`Any` keeps the
+    openai import out of the api layer). Tests override this to inject the fake client."""
+    if not llm.llm_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Natural-language summary unavailable: no LLM is configured.",
+        )
+    return llm.get_llm_client()

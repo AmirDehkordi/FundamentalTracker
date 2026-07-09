@@ -90,6 +90,25 @@ def test_window_boundaries_inclusive(db_session: Session) -> None:
     assert result.window_365d.buy_count == 3  # d90 + d91 + d365 in, d366 out
 
 
+def test_windows_differ_when_data_spans_more_than_90_days(db_session: Session) -> None:
+    # The UI showed identical 90d/365d for some tickers. That is CORRECT only when every Form 4
+    # falls within 90 days of the max-filed anchor (MSFT/GOOGL/ETN in the seed). With data spanning
+    # >90 days (as AAPL/NVDA do), the two windows MUST be computed over genuinely different sets.
+    _add(db_session, ANCHOR, "P", "100", "1000", "recent-buy")  # in both windows
+    _add(
+        db_session, ANCHOR - datetime.timedelta(days=200), "S", "50", "500", "old-sell"
+    )  # 365d only
+    db_session.commit()
+    result = insider.summary(db_session, AAPL_CIK, as_of=ANCHOR)
+    assert result.window_90d.buy_count == 1 and result.window_90d.sell_count == 0
+    assert result.window_365d.buy_count == 1 and result.window_365d.sell_count == 1
+    # Genuinely different windows: 365d captures the older sell that 90d excludes.
+    assert result.window_90d.sell_count != result.window_365d.sell_count
+    assert result.window_90d.net_shares != result.window_365d.net_shares  # 100 vs 50
+    assert result.window_90d.sell_notional is None
+    assert result.window_365d.sell_notional == 500.0
+
+
 def test_empty_short_window(db_session: Session) -> None:
     _add(db_session, ANCHOR - datetime.timedelta(days=200), "P", "10", "1", "d200")
     db_session.commit()

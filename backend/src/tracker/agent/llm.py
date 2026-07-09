@@ -69,6 +69,15 @@ def get_llm_client() -> OpenAI:
     return get_client()
 
 
+def llm_configured() -> bool:
+    """True iff a non-blank LLM API key is set. The LLM-optional endpoints (risk-diff summary) 503
+    on False instead of constructing a client that would raise. Never raises."""
+    try:
+        return bool(get_settings().llm_api_key.get_secret_value().strip())
+    except Exception:  # settings fail to load (key absent entirely) -> not configured
+        return False
+
+
 def _timed_create(client: OpenAI, *, phase: str, **kwargs: Any) -> ChatCompletion:
     start = time.perf_counter()
     # non-streaming call; annotate so the **kwargs overload doesn't widen the return to Any

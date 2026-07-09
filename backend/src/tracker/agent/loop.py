@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, Literal
 
 from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from tracker.agent import llm, tools
 from tracker.agent.prompts import SYSTEM_PROMPT
-from tracker.api.schemas import Citation, FinalAnswer, Message, ToolTrace
+from tracker.api.schemas import AnswerKind, Citation, FinalAnswer, Message, ToolTrace
 
 logger = logging.getLogger("tracker.agent.loop")
 
@@ -35,15 +35,34 @@ _FILING_TOOLS = frozenset({"search_filings", "diff_risk_factors"})
 
 
 class LlmAnswer(BaseModel):
-    """Structured-output target: `FinalAnswer` minus `trace` (the loop owns the trace)."""
+    """Structured-output target: `FinalAnswer` minus `trace` (the loop owns the trace).
+
+    `kind` is optional here: the model may set "answer"/"clarification"/"decline", or leave it and
+    the loop derives it from `declined` (kept for backward compatibility). "error" is loop-only and
+    never emitted by the model, so it is not in this Literal."""
 
     model_config = ConfigDict(extra="forbid")
 
     answer_md: str
     citations: list[Citation] = Field(default_factory=list)
+    kind: Literal["answer", "clarification", "decline"] | None = None
+    suggested_followups: list[str] = Field(default_factory=list)
     declined: bool = False
     decline_reason: str | None = None
 
+
+def _resolve_kind(answer: LlmAnswer) -> AnswerKind:
+    """The model's `kind` if set, else derived from the legacy `declined` flag."""
+    if answer.kind is not None:
+        return answer.kind
+    return "decline" if answer.declined else "answer"
+
+
+_SEARCH_RETRY_HINT = (
+    "Your last search_filings call returned 0 hits. Before answering, call search_filings ONE more "
+    "time with fewer or different keywords (2-5 content words, synonyms, or a broader term). If it "
+    "still finds nothing, say the filings don't appear to cover it and suggest a rephrasing."
+)
 
 _RESPONSE_FORMAT: dict[str, Any] = {
     "type": "json_schema",
@@ -72,6 +91,8 @@ def run(
     messages = _initial_messages(question, history)
     trace: list[ToolTrace] = []
     filing_grounded = False  # a filing tool actually RETURNED citable 10-K text (not merely called)
+    last_search_zero = False  # the most recent search_filings returned 0 hits
+    search_hint_used = False  # the one-shot "0 hits — retry" nudge has fired
 
     for _turn in range(_MAX_TURNS):
         if deadline is not None and time.monotonic() >= deadline:
@@ -93,6 +114,14 @@ def run(
             return _declined("The analysis backend returned an unexpected response.", trace)
         calls = _function_calls(msg)
         if not calls:
+            # Model wants to answer. If its last search found nothing and we haven't nudged yet,
+            # inject one corrective hint and give it another turn before letting it apologise —
+            # the AND-semantics miss is recoverable with fewer/different keywords.
+            if last_search_zero and not search_hint_used:
+                search_hint_used = True
+                messages.append({"role": "assistant", "content": msg.content or ""})
+                messages.append({"role": "user", "content": _SEARCH_RETRY_HINT})
+                continue
             break  # model has stopped calling tools — ready to answer
 
         messages.append(
@@ -122,6 +151,8 @@ def run(
             )
             if _filing_has_content(tc.function.name, result):
                 filing_grounded = True
+            if tc.function.name == "search_filings" and result.get("ok"):
+                last_search_zero = not result.get("count", 0)
 
     return _finalize(client, model, messages, trace, deadline, usage, filing_grounded)
 
@@ -159,11 +190,13 @@ def _finalize(
     # Citation grounding is enforced only heuristically (a digit in answer_md with no citation, or
     # citable filing text used but never cited as source_type "filing"); we don't cross-check that a
     # cited accession actually came from a tool. `filing_grounded` is set only when a filing tool
-    # RETURNED text, so a no-hit search never demands a citation. Retry once (deadline permitting).
+    # RETURNED text, so a no-hit search never demands a citation. Only real ANSWERS need citations —
+    # a clarification/decline may carry digits ("one of the 5") without a citation. Retry once.
+    kind = _resolve_kind(answer)
     stated_uncited = not answer.citations and any(c.isdigit() for c in answer.answer_md)
     has_filing_cite = any(c.source_type == "filing" for c in answer.citations)
     missing_filing = filing_grounded and not has_filing_cite
-    if not answer.declined and (stated_uncited or missing_filing) and not _past(deadline):
+    if kind == "answer" and (stated_uncited or missing_filing) and not _past(deadline):
         reqs = []
         if stated_uncited:
             reqs.append("cite every figure")
@@ -179,12 +212,15 @@ def _finalize(
         corrected = _final_call(client, model, retry, deadline, usage)
         if corrected is not None:
             answer = corrected  # accept best effort; the rule is retry-once, not force-decline
+            kind = _resolve_kind(answer)
 
     return FinalAnswer(
         answer_md=answer.answer_md,
         citations=answer.citations,
         trace=trace,
-        declined=answer.declined,
+        kind=kind,
+        suggested_followups=answer.suggested_followups,
+        declined=kind == "decline",
         decline_reason=answer.decline_reason,
     )
 
@@ -280,4 +316,8 @@ def _truncate(s: str) -> str:
 
 
 def _declined(reason: str, trace: list[ToolTrace]) -> FinalAnswer:
-    return FinalAnswer(answer_md=reason, declined=True, decline_reason=reason, trace=trace)
+    """A loop-internal failure (LLM/proxy error, schema failure) — kind="error", never a model
+    refusal. Kept the historical name; `declined` stays True for backward compatibility."""
+    return FinalAnswer(
+        answer_md=reason, kind="error", declined=True, decline_reason=reason, trace=trace
+    )

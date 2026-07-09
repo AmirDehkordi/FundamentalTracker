@@ -78,12 +78,12 @@ def test_compare_derived_metrics(rich_session: Session, metric: str, expected: f
     assert _cell(result, "FULL").value.value == pytest.approx(expected, rel=1e-9)
 
 
-def test_compare_operating_leverage_mixed(rich_session: Session) -> None:
-    result = compare.compare(rich_session, "operating_leverage")
+def test_compare_incremental_operating_margin_mixed(rich_session: Session) -> None:
+    result = compare.compare(rich_session, "incremental_operating_margin")
     # ΔOpInc/ΔRev for FY2024->FY2025 = (130-105)/(400-350) = 0.50 — deliberately distinct from the
-    # point operating_margin (0.325) so this pins operating leverage, not the margin.
+    # point operating_margin (0.325) so this pins incremental operating margin, not the margin.
     assert _cell(result, "FULL").value.value == pytest.approx(0.5, rel=1e-9)
-    # EDGECO's prior FY (2024) is a gap, so operating leverage is not computable — None, no reason.
+    # EDGECO's prior FY (2024) is a gap, so it is not computable — None, no reason.
     edge = _cell(result, "EDGE")
     assert edge.value.value is None and edge.value.reason is None
 

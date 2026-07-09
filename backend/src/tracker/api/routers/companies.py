@@ -11,8 +11,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from tracker.agent import riskdiff_summary
 from tracker.api import schemas
-from tracker.api.deps import require_company
+from tracker.api.deps import require_company, require_llm_client
+from tracker.config import get_settings
 from tracker.db.session import get_session
 from tracker.services import fundamentals, insider, prices, riskdiff, valuation
 
@@ -98,6 +100,28 @@ def company_risk_diff(
     return schemas.RiskDiffOut.model_validate(
         riskdiff.diff_risk_factors(session, company.cik, item="1A")
     )
+
+
+@router.get(
+    "/companies/{ticker}/risk-diff/summary",
+    response_model=schemas.RiskDiffSummaryOut,
+    summary="LLM summary of the Item 1A diff",
+    responses={
+        **_NOT_FOUND,
+        503: {"model": schemas.ErrorOut, "description": "No LLM configured / summary unavailable"},
+    },
+)
+def company_risk_diff_summary(
+    company: fundamentals.CompanyRef = Depends(require_company),
+    session: Session = Depends(get_session),
+    client: Any = Depends(require_llm_client),
+) -> schemas.RiskDiffSummaryOut:
+    diff = riskdiff.diff_risk_factors(session, company.cik, item="1A")
+    try:
+        summary = riskdiff_summary.build_summary(client, get_settings().llm_model, diff)
+    except riskdiff_summary.RiskSummaryUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"Risk summary unavailable: {exc}") from exc
+    return schemas.RiskDiffSummaryOut.model_validate(summary)
 
 
 @router.get(

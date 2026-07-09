@@ -133,16 +133,24 @@ def test_get_fundamentals_yoy(rich_session: Session) -> None:
 
 
 def test_get_fundamentals_yoy_mirrors_raw_levels(rich_session: Session) -> None:
-    # Schema: "yoy mirrors metrics" — every raw level (non-ratio) has a yoy cell. The five margins
-    # are metrics-only; operating_leverage is yoy-only. cost_of_revenue must not be dropped.
+    # Every raw level (non-ratio) has a % YoY cell. cost_of_revenue must not be dropped. The extra
+    # yoy keys beyond the raw levels: the five margins now carry a percentage-point YoY, plus
+    # incremental_operating_margin and the two dollar deltas the chart plots.
     result = fundamentals.get_fundamentals(rich_session, "FULL")
     assert result is not None
     row = _row(result, 2025)
-    ratio_only = {"gross_margin", "operating_margin", "net_margin", "fcf_margin", "fcf_conversion"}
-    raw_levels = set(row.metrics) - ratio_only
+    margins = {"gross_margin", "operating_margin", "net_margin", "fcf_margin", "fcf_conversion"}
+    raw_levels = set(row.metrics) - margins
     assert raw_levels <= set(row.yoy)
     assert "cost_of_revenue" in row.yoy
-    assert set(row.yoy) - raw_levels == {"operating_leverage"}
+    assert set(row.yoy) - raw_levels == margins | {
+        "incremental_operating_margin",
+        "delta_revenue",
+        "delta_operating_income",
+    }
+    # Margin YoY is a percentage-point delta; the dollar deltas are USD.
+    assert row.yoy["gross_margin"].unit == "percentage_points"
+    assert row.yoy["delta_revenue"].unit == "USD"
 
 
 def test_get_fundamentals_edgeco_guards(rich_session: Session) -> None:
@@ -150,7 +158,7 @@ def test_get_fundamentals_edgeco_guards(rich_session: Session) -> None:
     assert result is not None
     fy2023 = _row(result, 2023)
     assert fy2023.yoy["net_income"].reason == metrics.REASON_YOY_NONPOSITIVE_BASE
-    assert fy2023.yoy["operating_leverage"].reason == metrics.REASON_OPLEV_OPINC_SIGN_FLIP
+    assert fy2023.yoy["incremental_operating_margin"].reason == metrics.REASON_IOM_OPINC_SIGN_FLIP
     assert fy2023.metrics["fcf_conversion"].reason == metrics.REASON_FCF_CONV_UNDEFINED
     assert fy2023.metrics["revenue"].superseded_value == pytest.approx(1.05e11, rel=1e-9)
 

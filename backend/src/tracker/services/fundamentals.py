@@ -47,7 +47,7 @@ DERIVED_UNITS: dict[str, MetricUnit] = {
     "net_margin": "percent",
     "fcf_margin": "percent",
     "fcf_conversion": "ratio",
-    "operating_leverage": "ratio",
+    "incremental_operating_margin": "ratio",
     "revenue_yoy": "percent",
 }
 
@@ -238,11 +238,11 @@ def compute_metric(
         cfo = _concept_value(facts, "cfo")
         capex = _concept_value(facts, "capex")
         return metrics.build_fcf_conversion(cfo, capex, _concept_value(facts, "net_income"))
-    if metric_key == "operating_leverage":
+    if metric_key == "incremental_operating_margin":
         prior = index.get(reported.fiscal_year - 1)
         prior_oi = _concept_value(prior, "operating_income") if prior else None
         prior_rev = _concept_value(prior, "revenue") if prior else None
-        return metrics.build_operating_leverage(
+        return metrics.build_incremental_operating_margin(
             _concept_value(facts, "operating_income"), prior_oi, rev, prior_rev
         )
     if metric_key == "revenue_yoy":
@@ -307,29 +307,63 @@ def _build_row(facts: FyFacts, prior: FyFacts | None) -> FyRow:
     def prior_value(concept: str) -> Decimal | None:
         return _concept_value(prior, concept) if prior else None
 
+    prev_rev = prior_value("revenue")
+    prev_oi = prior_value("operating_income")
+    prev_gp = prior_value("gross_profit")
+    prev_ni = prior_value("net_income")
+    prev_cfo = prior_value("cfo")
+    prev_capex = prior_value("capex")
+
+    def usd_delta(curr: Decimal | None, prev: Decimal | None) -> Metric:
+        """Per-FY dollar delta (curr − prev) in USD — the chart's incremental bars."""
+        if curr is None or prev is None:
+            return Metric(value=None, unit="USD")
+        return Metric(value=float(curr - prev), unit="USD")
+
     yoy_cells: dict[str, Metric] = {
-        "revenue": metrics.build_yoy(rev, prior_value("revenue")),
+        # Absolute levels + fcf: relative % change (build_yoy).
+        "revenue": metrics.build_yoy(rev, prev_rev),
         "cost_of_revenue": metrics.build_yoy(
             _concept_value(facts, "cost_of_revenue"), prior_value("cost_of_revenue")
         ),
-        "gross_profit": metrics.build_yoy(gp, prior_value("gross_profit")),
-        "operating_income": metrics.build_yoy(oi, prior_value("operating_income")),
-        "net_income": metrics.build_yoy(ni, prior_value("net_income")),
+        "gross_profit": metrics.build_yoy(gp, prev_gp),
+        "operating_income": metrics.build_yoy(oi, prev_oi),
+        "net_income": metrics.build_yoy(ni, prev_ni),
         "eps_diluted": metrics.build_yoy(
             _concept_value(facts, "eps_diluted"), prior_value("eps_diluted")
         ),
-        "cfo": metrics.build_yoy(cfo, prior_value("cfo")),
-        "capex": metrics.build_yoy(capex, prior_value("capex")),
+        "cfo": metrics.build_yoy(cfo, prev_cfo),
+        "capex": metrics.build_yoy(capex, prev_capex),
         "fcf": metrics.build_yoy(
             metrics.fcf_amount(cfo, capex),
-            metrics.fcf_amount(prior_value("cfo"), prior_value("capex")),
+            metrics.fcf_amount(prev_cfo, prev_capex),
         ),
         "shares_diluted": metrics.build_yoy(
             _concept_value(facts, "shares_diluted"), prior_value("shares_diluted")
         ),
-        "operating_leverage": metrics.build_operating_leverage(
-            oi, prior_value("operating_income"), rev, prior_value("revenue")
+        # Margins + fcf_conversion: percentage-POINT delta (curr margin − prior margin).
+        "gross_margin": metrics.build_margin_change(
+            metrics.gross_margin(gp, rev), metrics.gross_margin(prev_gp, prev_rev)
         ),
+        "operating_margin": metrics.build_margin_change(
+            metrics.operating_margin(oi, rev), metrics.operating_margin(prev_oi, prev_rev)
+        ),
+        "net_margin": metrics.build_margin_change(
+            metrics.net_margin(ni, rev), metrics.net_margin(prev_ni, prev_rev)
+        ),
+        "fcf_margin": metrics.build_margin_change(
+            metrics.fcf_margin(cfo, capex, rev), metrics.fcf_margin(prev_cfo, prev_capex, prev_rev)
+        ),
+        "fcf_conversion": metrics.build_margin_change(
+            metrics.fcf_conversion(cfo, capex, ni),
+            metrics.fcf_conversion(prev_cfo, prev_capex, prev_ni),
+        ),
+        # Incremental operating margin (ΔOpInc/ΔRev) + the dollar deltas the card plots.
+        "incremental_operating_margin": metrics.build_incremental_operating_margin(
+            oi, prev_oi, rev, prev_rev
+        ),
+        "delta_revenue": usd_delta(rev, prev_rev),
+        "delta_operating_income": usd_delta(oi, prev_oi),
     }
 
     return FyRow(

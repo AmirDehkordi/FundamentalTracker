@@ -14,18 +14,22 @@ import pytest
 import yaml
 
 from tracker.agent.tools import TOOLS
-from tracker.api.schemas import CitationSource
+from tracker.api.schemas import AnswerKind, CitationSource
 
 _QUESTIONS = Path(__file__).parents[2] / "evals" / "questions.yaml"
 _KNOWN_TOOLS = set(TOOLS)
 _KNOWN_SOURCES = set(typing.get_args(CitationSource))
+_KNOWN_KINDS = set(typing.get_args(AnswerKind))
 _EXPECT_KEYS = {
     "tools_any_of",
     "tools_all_of",
     "declined",
     "citation_source_types",
+    "citation_items_any_of",
     "answer_regex",
     "decline_reason_contains",
+    "kind",
+    "suggested_followups_min",
 }
 
 
@@ -83,3 +87,15 @@ def test_case_is_well_formed(case: dict[str, object]) -> None:
     if "decline_reason_contains" in expected:
         assert isinstance(expected["decline_reason_contains"], str)
         assert expected["decline_reason_contains"].strip()
+
+    if "citation_items_any_of" in expected:
+        items = expected["citation_items_any_of"]
+        assert isinstance(items, list) and items
+        assert all(isinstance(i, str) for i in items)
+
+    if "kind" in expected:
+        assert expected["kind"] in _KNOWN_KINDS
+
+    if "suggested_followups_min" in expected:
+        assert isinstance(expected["suggested_followups_min"], int)
+        assert expected["suggested_followups_min"] >= 1

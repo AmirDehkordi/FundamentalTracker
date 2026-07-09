@@ -22,13 +22,26 @@ from tracker.services.fiscal import format_fy_label
 
 OVERLAP_PROBE = 400  # chars of head/tail scanned for the ~200-char inter-chunk overlap
 MIN_OVERLAP = 30  # ignore incidental short common runs when de-overlapping
-SIMILARITY_THRESHOLD = 0.75  # SequenceMatcher ratio at/above which two paragraphs are "unchanged"
+# Tuned DOWN from 0.75: a reworded risk factor (same substance, reflowed sentences) should pair as
+# "unchanged", not surface as both added AND removed. Combined with the noise filters below, this
+# brings the counts to what a human would call "what actually changed" (MSFT's 36/42 collapses).
+SIMILARITY_THRESHOLD = 0.66  # SequenceMatcher ratio at/above which two paragraphs are "unchanged"
+MERGE_THRESHOLD = 0.97  # intra-year: only NEAR-IDENTICAL paragraphs (repeated boilerplate) collapse
+MIN_PARAGRAPH_CHARS = 120  # drop sub-sentence fragments (headers, captions, page furniture)
 EXCERPT_CHARS = 240  # per-paragraph excerpt cap
 # Real EDGAR Item 1A text delimits each risk factor with a SINGLE newline (bullets sit on their own
 # "•" lines), not blank lines. Splitting only on blank lines collapsed the whole ~115KB section into
 # one paragraph, and _pair's O(n²) ratio() on two such blobs took ~100s. Split on any newline run,
 # dropping marker-only lines, so pairing runs on real, per-risk-factor paragraphs.
 _PARAGRAPH_SPLIT = re.compile(r"\n+")
+# Page furniture / section chrome that reflows year over year and inflates the diff. Matched against
+# the whitespace-collapsed paragraph; most such lines are also caught by the <120-char floor.
+_PAGE_NUMBER = re.compile(r"^(page\s+)?\d{1,4}(\s*[|/].*)?$", re.IGNORECASE)
+_BOILERPLATE = re.compile(
+    r"^(table of contents|item\s*1a\.?(\s*risk factors)?|risk factors|"
+    r"part\s+[ivx]+|form\s*10-?k.*)$",
+    re.IGNORECASE,
+)
 
 RISKDIFF_UNAVAILABLE_NOTE = (
     "Item 1A year-over-year diff unavailable: fewer than two fiscal years of extracted "
@@ -187,8 +200,48 @@ def _reconstruct(chunks: list[FilingChunk]) -> list[str]:
             text += chunk.text[match.size :]
         else:
             text += "\n\n" + chunk.text
-    # `any(isalnum)` drops bare bullet/marker lines (a lone "•") while keeping every real paragraph.
-    return [p.strip() for p in _PARAGRAPH_SPLIT.split(text) if any(ch.isalnum() for ch in p)]
+    # `any(isalnum)` drops bare bullet/marker lines (a lone "•"); `_denoise` then drops page
+    # furniture / sub-sentence fragments and collapses intra-year near-duplicate boilerplate, so
+    # `_pair` sees real, distinct risk-factor paragraphs and the counts reflect substance.
+    paras = [p.strip() for p in _PARAGRAPH_SPLIT.split(text) if any(ch.isalnum() for ch in p)]
+    return _denoise(paras)
+
+
+def _is_noise(paragraph: str) -> bool:
+    """A paragraph that carries no risk-factor substance: page numbers, section headers/captions,
+    and sub-sentence fragments that reflow year over year and inflate the diff."""
+    collapsed = " ".join(paragraph.split())
+    if len(collapsed) < MIN_PARAGRAPH_CHARS:
+        return True
+    return bool(_PAGE_NUMBER.match(collapsed) or _BOILERPLATE.match(collapsed))
+
+
+def _denoise(paragraphs: list[str]) -> list[str]:
+    """Drop noise paragraphs, then collapse intra-year near-duplicates (repeated boilerplate) so a
+    paragraph that appears twice in one filing can't count as one added + one removed next year."""
+    kept: list[str] = []
+    kept_words: list[list[str]] = []
+    for para in paragraphs:
+        if _is_noise(para):
+            continue
+        words = _normalize(para).split()
+        if any(_word_ratio(words, kw) >= MERGE_THRESHOLD for kw in kept_words):
+            continue  # a near-identical paragraph already kept this year
+        kept.append(para)
+        kept_words.append(words)
+    return kept
+
+
+def _word_ratio(a: list[str], b: list[str], threshold: float = 0.0) -> float:
+    """SequenceMatcher word-level ratio with the cheap length/quick_ratio prunes (0.0 below
+    `threshold`). Word granularity + autojunk off is accurate and ~300x faster on long text."""
+    la, lb = len(a), len(b)
+    if la == 0 or lb == 0 or 2.0 * min(la, lb) / (la + lb) < threshold:
+        return 0.0
+    matcher = SequenceMatcher(None, a, b, autojunk=False)
+    if threshold and matcher.quick_ratio() < threshold:
+        return 0.0
+    return matcher.ratio()
 
 
 def _normalize(paragraph: str) -> str:
@@ -239,15 +292,7 @@ def _pair(prior_paras: list[str], latest_paras: list[str]) -> tuple[list[str], l
         for j in range(len(latest_w)):
             if j in used_latest:
                 continue
-            lw = latest_w[j]
-            la, lb = len(pw), len(lw)
-            # O(1) length bound: ratio ≤ 2·min(la,lb)/(la+lb); skip before building a matcher.
-            if la == 0 or lb == 0 or 2.0 * min(la, lb) / (la + lb) < SIMILARITY_THRESHOLD:
-                continue
-            matcher = SequenceMatcher(None, pw, lw, autojunk=False)
-            if matcher.quick_ratio() < SIMILARITY_THRESHOLD:  # O(n) upper bound
-                continue
-            ratio = matcher.ratio()
+            ratio = _word_ratio(pw, latest_w[j], SIMILARITY_THRESHOLD)  # 0.0 below threshold
             if ratio >= SIMILARITY_THRESHOLD:
                 candidates.append((ratio, i, j))
 

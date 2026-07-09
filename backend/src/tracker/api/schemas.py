@@ -35,7 +35,7 @@ class APIModel(BaseModel):
 # value objects
 # ---------------------------------------------------------------------------
 
-MetricUnit = Literal["USD", "USD/shares", "shares", "percent", "ratio"]
+MetricUnit = Literal["USD", "USD/shares", "shares", "percent", "ratio", "percentage_points"]
 CitationSource = Literal["fundamental", "filing", "price", "insider"]
 
 
@@ -43,11 +43,12 @@ class MetricValue(APIModel):
     """One metric cell: a value, or an explicit None-with-reason.
 
     Formatting is driven entirely by `unit` so the frontend never guesses:
-      USD        -> adaptive '$130.5B' / '$964M'
-      USD/shares -> '$1.19'
-      shares     -> count
-      percent    -> value*100, 1dp, '%'   (margins AND YoY: 0.114 -> '+11.4%')
-      ratio      -> 'x'-suffixed           (P/E, P/S, FCF conversion, operating leverage)
+      USD               -> adaptive '$130.5B' / '$964M'
+      USD/shares        -> '$1.19'
+      shares            -> count
+      percent           -> value*100, 1dp, '%'   (margin LEVELS + level YoY: 0.114 -> '+11.4%')
+      ratio             -> 'x'-suffixed          (P/E, P/S, FCF conversion, incremental op. margin)
+      percentage_points -> value*100, 1dp, ' pp' (margin YoY: 0.02 -> '+2.0 pp', NOT a % change)
 
     `reason` is populated iff `value is None`; the UI renders 'n.m. — <reason>'. `superseded_*`
     surface a restatement (latest-filed-wins kept the prior value visible) so the UI can tooltip
@@ -87,9 +88,11 @@ class CompanyOut(APIModel):
 class FundamentalsRow(APIModel):
     """One fiscal year. `metrics` = raw canonical concepts, `fcf`, and the derived margins
     (gross_margin, operating_margin, net_margin, fcf_margin, fcf_conversion) in display order.
-    `yoy` carries this-FY-vs-prior-FY for the raw levels + `fcf`, plus `operating_leverage`
-    (inherently a YoY quantity); the margins have no YoY cell. Each value is a MetricValue, so a
-    None YoY carries its reason ('sign change / non-positive base')."""
+    `yoy` carries this-FY-vs-prior-FY for the raw levels + `fcf` (unit 'percent', % change), the
+    margins + fcf_conversion (unit 'percentage_points', a pp delta), `incremental_operating_margin`
+    (inherently a YoY ratio), and the dollar deltas `delta_revenue` / `delta_operating_income` (unit
+    'USD', the chart's incremental bars). Each value is a MetricValue, so a None YoY carries its
+    reason ('sign change / non-positive base')."""
 
     fiscal_year: int
     period_end: date
@@ -223,6 +226,30 @@ class RiskDiffOut(APIModel):
     note: str | None = None
 
 
+class RiskSummaryItem(APIModel):
+    """One LLM-summarised risk change, grounded ONLY in the deterministic diff text."""
+
+    title: str  # <= 8 words
+    detail: str  # <= 25 words
+
+
+class RiskDiffSummaryOut(APIModel):
+    """On-demand LLM summary of the deterministic Item 1A diff (§8/§14): the top newly added/
+    heightened and top removed/reduced risks. The diff itself stays deterministic; only this
+    summarisation is the model's. `available=False` mirrors RiskDiffOut's degraded state (fewer than
+    two filed years) — `added`/`removed` are then empty and `note` explains."""
+
+    ticker: str
+    cik: int
+    item: str  # "1A"
+    latest: FilingRef | None
+    prior: FilingRef | None
+    new_risks: list[RiskSummaryItem]  # top 3 newly added / heightened
+    reduced_risks: list[RiskSummaryItem]  # top 3 removed / reduced
+    available: bool = True
+    note: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # insider (Form 4 summary)
 # ---------------------------------------------------------------------------
@@ -282,14 +309,26 @@ class ToolTrace(APIModel):
     result_summary: str  # <= 120 chars (P8)
 
 
+AnswerKind = Literal["answer", "clarification", "decline", "error"]
+
+
 class FinalAnswer(APIModel):
     """The /api/ask response AND the schema bound to the LLM's structured output (P8 transport
     ladder). Kept flat for proxy compatibility; extra='forbid' catches hallucinated fields and
-    triggers the schema retry."""
+    triggers the schema retry.
+
+    `kind` splits the four outcomes the UI styles differently: a real `answer`; a `clarification`
+    (the agent asks ONE conversational question back — not a refusal); a `decline` (out of scope /
+    advice / forward-looking); an `error` (loop/endpoint failure). `declined` stays, and is derived
+    (`kind in {decline, error}`) for backward compatibility. `suggested_followups` are 1-3 natural-
+    language prompts the UI renders as chips — on a clarification, answerable rephrasings; on a
+    decline, in-scope alternatives."""
 
     answer_md: str
     citations: list[Citation] = Field(default_factory=list)
     trace: list[ToolTrace] = Field(default_factory=list)
+    kind: AnswerKind = "answer"
+    suggested_followups: list[str] = Field(default_factory=list)
     declined: bool = False
     decline_reason: str | None = None
 

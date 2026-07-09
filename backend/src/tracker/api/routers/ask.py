@@ -69,6 +69,7 @@ async def ask(
     ):
         return schemas.FinalAnswer(
             answer_md="That request is too large to process. Please shorten it.",
+            kind="error",
             declined=True,
             decline_reason="request too large",
         )
@@ -103,6 +104,7 @@ async def ask(
     except TimeoutError:
         answer = schemas.FinalAnswer(
             answer_md="This question took too long to analyze. Please try a narrower question.",
+            kind="error",
             declined=True,
             decline_reason="timeout",
         )
@@ -110,6 +112,7 @@ async def ask(
         logger.exception("ask handler unexpected failure")
         answer = schemas.FinalAnswer(
             answer_md="Something went wrong analyzing this question.",
+            kind="error",
             declined=True,
             decline_reason="internal error",
         )

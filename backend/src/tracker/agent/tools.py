@@ -45,7 +45,9 @@ _FUNDAMENTAL_KEYS: frozenset[str] = CANONICAL_CONCEPTS | {
     "net_margin",
     "fcf_margin",
     "fcf_conversion",
-    "operating_leverage",
+    "incremental_operating_margin",
+    "delta_revenue",
+    "delta_operating_income",
 }
 
 # The metrics compare can value: the 9 canonical concepts + the 7 derived ratios. Hand-spelled as a
@@ -66,7 +68,7 @@ CompareMetric = Literal[
     "net_margin",
     "fcf_margin",
     "fcf_conversion",
-    "operating_leverage",
+    "incremental_operating_margin",
     "revenue_yoy",
 ]
 
@@ -130,7 +132,8 @@ class GetFundamentalsArgs(BaseModel):
             "Subset of metric keys to return. Allowed: revenue, cost_of_revenue, gross_profit, "
             "operating_income, net_income, eps_diluted, cfo, capex, shares_diluted, fcf, "
             "gross_margin, operating_margin, net_margin, fcf_margin, fcf_conversion, "
-            "operating_leverage. Omit for all. Unknown names are ignored (see `ignored_concepts`)."
+            "incremental_operating_margin, delta_revenue, delta_operating_income. Omit for all. "
+            "Unknown names are ignored (see `ignored_concepts`)."
         ),
     )
     last_n_years: int | None = Field(
@@ -256,7 +259,15 @@ def get_valuation(session: Session, args: GetValuationArgs) -> dict[str, Any]:
 
 class SearchFilingsArgs(BaseModel):
     ticker: str = Field(description="Ticker whose 10-K filings to search.")
-    query: str = Field(min_length=1, description="Free-text query (websearch semantics).")
+    query: str = Field(
+        min_length=1,
+        description=(
+            "2-5 CONTENT KEYWORDS, never a sentence or question. Good: 'data center revenue "
+            "growth'. Bad: 'what are the main themes in the results of operations'. Terms are "
+            "ANDed, so fewer, rarer words match more. If results are thin, call again with "
+            "different or fewer keywords (synonyms)."
+        ),
+    )
     item: Literal["1A", "7"] | None = Field(
         default=None,
         description="Restrict to a 10-K item: 1A (risk factors) or 7 (MD&A). Omit for all.",
@@ -276,7 +287,7 @@ def search_filings(session: Session, args: SearchFilingsArgs) -> dict[str, Any]:
     company = _resolve(session, args.ticker)
     if isinstance(company, dict):
         return company
-    hits = retrieval.search_chunks(
+    result = retrieval.search_chunks(
         session, company.cik, args.query, item=args.item, fiscal_year=args.fiscal_year, limit=8
     )
     return {
@@ -284,7 +295,10 @@ def search_filings(session: Session, args: SearchFilingsArgs) -> dict[str, Any]:
         "ticker": company.ticker,
         "cik": company.cik,
         "query": args.query,
-        "count": len(hits),  # 0 is a first-class 'no matches', not an error
+        # Which ladder rung matched: exact | relaxed | fuzzy | none. 'relaxed'/'fuzzy' tell it
+        # (and the trace) the strict AND missed, so a thin result set is expected — not "no data".
+        "matched_mode": result.mode,
+        "count": len(result.hits),  # 0 is a first-class 'no matches', not an error
         "hits": [
             {
                 "accession": h.accession,
@@ -294,7 +308,7 @@ def search_filings(session: Session, args: SearchFilingsArgs) -> dict[str, Any]:
                 "snippet": h.snippet,
                 "url": h.url,
             }
-            for h in hits
+            for h in result.hits
         ],
     }
 
@@ -465,7 +479,8 @@ TOOLS: dict[str, ToolSpec] = {
         ),
         _spec(
             "search_filings",
-            "Full-text search a company's 10-K chunks; returns cited snippets with SEC URLs.",
+            "Keyword search a company's 10-K chunks (pass 2-5 content keywords, not a sentence); "
+            "returns cited snippets with SEC URLs. Retry with other keywords if results are thin.",
             SearchFilingsArgs,
             search_filings,
         ),
@@ -542,7 +557,9 @@ def summarize(name: str, result: dict[str, Any]) -> str:
             f"P/S={result['trailing_ps'].get('value')}"
         )
     if name == "search_filings":
-        return f"{result['ticker']} '{result['query']}': {result['count']} hits"
+        mode = result.get("matched_mode", "exact")
+        suffix = f" ({mode} search)" if mode not in ("exact", "none") else ""
+        return f"{result['ticker']} '{result['query']}': {result['count']} hits{suffix}"
     if name == "diff_risk_factors":
         c = result["counts"]
         return (

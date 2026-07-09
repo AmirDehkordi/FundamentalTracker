@@ -1,11 +1,11 @@
 """Pure metric functions + the shared MetricValue-shaped cell (PLAN.md §6).
 
-Two layers live here. The *scalar* functions (`gross_margin`, `yoy`, `operating_leverage`, …) are
-pure math: they take `Decimal | None` off the ORM, do all arithmetic in `Decimal` (exact guards for
-the 1%-of-revenue and sign tests), return `float | None`, and NEVER raise on bad data. The *builder*
-functions (`build_pe`, `build_yoy`, …) wrap a scalar into a `Metric` and attach the correct
-None-with-reason string. Reason selection sits beside the guards, so a caller never misreads a
-`None` (a bare `float | None` can't say which of operating leverage's three guards tripped).
+Two layers live here. The *scalar* functions (`gross_margin`, `yoy`, `incremental_operating_margin`,
+…) are pure math: they take `Decimal | None` off the ORM, do all arithmetic in `Decimal` (exact
+guards for the 1%-of-revenue and sign tests), return `float | None`, and NEVER raise on bad data.
+The *builder* functions (`build_pe`, `build_yoy`, …) wrap a scalar into a `Metric` and attach the
+right None-with-reason string. Reason selection sits beside the guards, so a caller never misreads a
+`None` (a bare `float | None` can't say which of the three incremental-margin guards tripped).
 
 `Metric` mirrors `schemas.MetricValue` field-for-field; services never import the wire schema. P5
 maps a `Metric` to `MetricValue` via `MetricValue.model_validate(metric)` (APIModel is
@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Literal
 
 # Mirrors schemas.MetricUnit; a local Literal so services never import the frozen wire module.
-MetricUnit = Literal["USD", "USD/shares", "shares", "percent", "ratio"]
+MetricUnit = Literal["USD", "USD/shares", "shares", "percent", "ratio", "percentage_points"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,10 +40,11 @@ class Metric:
 REASON_PE_NEGATIVE_EPS = "n.m. — negative EPS"
 REASON_FCF_CONV_UNDEFINED = "undefined — net income ≤ 0"
 REASON_YOY_NONPOSITIVE_BASE = "sign change / non-positive base"
-# Operating leverage: PLAN.md §6 flags all three causes "n.m."; each keeps the specific cause.
-REASON_OPLEV_REVENUE_DECLINED = "n.m. — revenue declined"
-REASON_OPLEV_REVENUE_FLAT = "n.m. — revenue change < 1%"
-REASON_OPLEV_OPINC_SIGN_FLIP = "n.m. — operating income changed sign"
+# Incremental operating margin (ΔOpInc/ΔRev): PLAN.md §6 flags all three causes "n.m."; each keeps
+# the specific cause. Strings are unchanged by the operating_leverage rename (they name the inputs).
+REASON_IOM_REVENUE_DECLINED = "n.m. — revenue declined"
+REASON_IOM_REVENUE_FLAT = "n.m. — revenue change < 1%"
+REASON_IOM_OPINC_SIGN_FLIP = "n.m. — operating income changed sign"
 
 # P/S share-basis caveat (decision log #11): diluted WAD shares understate buybacks.
 BASIS_NOTE_PS_WAD = "P/S uses diluted weighted-average shares; understates buybacks."
@@ -127,29 +128,31 @@ def eps_growth(eps_curr: Decimal | None, eps_prev: Decimal | None) -> float | No
     return yoy(eps_curr, eps_prev)
 
 
-def _oplev_reason(
+def _iom_reason(
     oi_curr: Decimal, oi_prev: Decimal, rev_curr: Decimal, rev_prev: Decimal
 ) -> str | None:
-    """Which operating-leverage guard trips (deterministic priority), or None if it holds."""
+    """Which incremental-operating-margin guard trips (deterministic priority), or None if it
+    holds."""
     delta_rev = rev_curr - rev_prev
     if delta_rev < 0:
-        return REASON_OPLEV_REVENUE_DECLINED
+        return REASON_IOM_REVENUE_DECLINED
     # Flat/blow-up: |ΔRev| < 1% of revenue. `delta_rev == 0` is caught here too (both revenues zero
     # slips past the 1% test since the threshold is also 0) so the division below can never be by 0.
     if delta_rev == 0 or abs(delta_rev) < abs(rev_curr) / 100:
-        return REASON_OPLEV_REVENUE_FLAT
+        return REASON_IOM_REVENUE_FLAT
     if oi_curr * oi_prev < 0:  # operating income flipped sign — incremental margin is meaningless
-        return REASON_OPLEV_OPINC_SIGN_FLIP
+        return REASON_IOM_OPINC_SIGN_FLIP
     return None
 
 
-def operating_leverage(
+def incremental_operating_margin(
     op_income_curr: Decimal | None,
     op_income_prev: Decimal | None,
     revenue_curr: Decimal | None,
     revenue_prev: Decimal | None,
 ) -> float | None:
-    """ΔOperatingIncome / ΔRevenue, FY over FY. None if an input is missing or a guard trips."""
+    """ΔOperatingIncome / ΔRevenue, FY over FY (the incremental operating margin — how much of each
+    new revenue dollar reaches operating income). None if an input is missing or a guard trips."""
     if (
         op_income_curr is None
         or op_income_prev is None
@@ -157,7 +160,7 @@ def operating_leverage(
         or revenue_prev is None
     ):
         return None
-    if _oplev_reason(op_income_curr, op_income_prev, revenue_curr, revenue_prev) is not None:
+    if _iom_reason(op_income_curr, op_income_prev, revenue_curr, revenue_prev) is not None:
         return None
     return float((op_income_curr - op_income_prev) / (revenue_curr - revenue_prev))
 
@@ -177,14 +180,14 @@ def build_yoy(curr: Decimal | None, prev: Decimal | None) -> Metric:
     return Metric(value=None, unit="percent", reason=REASON_YOY_NONPOSITIVE_BASE)
 
 
-def build_operating_leverage(
+def build_incremental_operating_margin(
     op_income_curr: Decimal | None,
     op_income_prev: Decimal | None,
     revenue_curr: Decimal | None,
     revenue_prev: Decimal | None,
 ) -> Metric:
-    """Operating-leverage cell (ratio). Missing input → None; else the tripped-guard reason."""
-    value = operating_leverage(op_income_curr, op_income_prev, revenue_curr, revenue_prev)
+    """Incremental-operating-margin cell (ratio). Missing input → None; else the guard reason."""
+    value = incremental_operating_margin(op_income_curr, op_income_prev, revenue_curr, revenue_prev)
     if value is not None:
         return Metric(value=value, unit="ratio")
     if (
@@ -194,8 +197,20 @@ def build_operating_leverage(
         or revenue_prev is None
     ):
         return Metric(value=None, unit="ratio")
-    reason = _oplev_reason(op_income_curr, op_income_prev, revenue_curr, revenue_prev)
+    reason = _iom_reason(op_income_curr, op_income_prev, revenue_curr, revenue_prev)
     return Metric(value=None, unit="ratio", reason=reason)
+
+
+def build_margin_change(curr: float | None, prev: float | None) -> Metric:
+    """Margin/ratio YoY as a PERCENTAGE-POINT delta (curr − prev), unit 'percentage_points'.
+
+    Distinct from build_yoy's relative % change: a margin going 40%→42% is +2.0 pp, not +5%.
+    Inputs are the already-computed margin floats (gross/operating/net/FCF margin, FCF conversion).
+    None if either margin is missing; no non-positive-base guard (a pp delta needs no such base).
+    """
+    if curr is None or prev is None:
+        return Metric(value=None, unit="percentage_points")
+    return Metric(value=curr - prev, unit="percentage_points")
 
 
 def build_fcf_conversion(
