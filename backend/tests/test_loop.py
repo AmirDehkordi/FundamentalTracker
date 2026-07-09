@@ -13,10 +13,13 @@ from sqlalchemy.orm import Session
 
 from fixtures.fake_llm import (
     FakeOpenAI,
+    custom_tool_call,
     empty_choices,
     final_response,
+    malformed_tool_call,
     raw_final,
     raw_tool_call,
+    refusal_final,
     stop_turn,
     tool_call,
     tool_response,
@@ -71,6 +74,18 @@ def test_two_tool_cross_modal_trace_in_order(db_session: Session) -> None:
     answer = _run(db_session, client)
     assert [t.tool for t in answer.trace] == ["get_valuation", "search_filings"]
     assert answer.trace[0].args == {"ticker": "AAPL"}
+
+    # Grounding lock-in: the tool outputs (and the assistant tool_calls that requested them) must
+    # actually reach the model on the final turn — not just show up in the trace.
+    final_msgs = client.calls[-1]["messages"]
+    assistant_calls = {
+        t["id"] for m in final_msgs if m["role"] == "assistant" for t in m.get("tool_calls", [])
+    }
+    assert assistant_calls == {"c1", "c2"}
+    tool_msgs = [m for m in final_msgs if m["role"] == "tool"]
+    assert {m["tool_call_id"] for m in tool_msgs} == {"c1", "c2"}
+    # a REAL seeded value (AAPL's FY2025 EPS accession) was forwarded to the model
+    assert any("0000320193-2025-10K" in m["content"] for m in tool_msgs)
 
 
 def test_refusal_fills_decline_reason(db_session: Session) -> None:
@@ -210,6 +225,34 @@ def test_empty_choices_on_final_turn_declines(db_session: Session) -> None:
     answer = _run(db_session, client)  # content None -> ValidationError -> retry -> decline
     assert answer.declined is True
     assert answer.decline_reason == "Internal formatting error."
+
+
+def test_unusable_tool_calls_are_dropped_not_raised(db_session: Session) -> None:
+    # A spec-violating proxy sends a non-function call and a function call with a null function.
+    # run() must degrade, not raise: both are skipped and the loop finalizes with what it has.
+    client = FakeOpenAI(
+        [
+            tool_response(custom_tool_call("cust"), malformed_tool_call("bad")),
+            final_response({"answer_md": "No usable tool call was made."}),
+        ]
+    )
+    answer = _run(db_session, client)  # must not raise
+    assert answer.declined is False
+    assert answer.trace == []  # neither unusable call was executed or traced
+
+
+def test_final_turn_refusal_becomes_decline(db_session: Session) -> None:
+    client = FakeOpenAI([stop_turn(), refusal_final("I can't help with that request.")])
+    answer = _run(db_session, client)
+    assert answer.declined is True
+    assert answer.decline_reason == "I can't help with that request."
+
+
+def test_truncate_caps_summary_at_120_with_ellipsis() -> None:
+    out = loop._truncate("x" * 200)
+    assert len(out) == 120  # the P8 <=120 result_summary invariant
+    assert out.endswith("…")
+    assert loop._truncate("short") == "short"
 
 
 def test_citation_retry_failure_keeps_original(db_session: Session) -> None:
