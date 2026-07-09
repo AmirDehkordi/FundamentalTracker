@@ -1,0 +1,94 @@
+# Eval set for POST /api/ask. Each case is sent independently (empty history). Cases brief-1..brief-6
+# are the case-study brief's six questions (verbatim) and must ALL pass; extra-7..extra-12 are added
+# coverage. Expectations are asserted only when present (see evals/run.py for semantics):
+#   tools_any_of            >= 1 of these tool names appears in the response trace
+#   tools_all_of            every one of these tool names appears in the trace
+#   declined                the response `declined` flag equals this
+#   citation_source_types   every listed source_type appears among the response citations (subset)
+#   answer_regex            re.search (case-insensitive) matches answer_md
+#   decline_reason_contains substring of decline_reason
+#
+# DO NOT weaken an expectation to make a run green — fix agent/prompts.py or agent/loop.py instead.
+
+- id: brief-1-fundamentals
+  question: "What were NVDA's revenue and net income for the last three fiscal years?"
+  expected:
+    tools_all_of: [get_fundamentals]
+    citation_source_types: [fundamental]
+    declined: false
+
+- id: brief-2-compare-gross-margin
+  question: "Which of the five companies had the highest gross margin last year?"
+  expected:
+    tools_all_of: [compare_companies]
+    citation_source_types: [fundamental]
+    answer_regex: '(?i)\b(?:FY|fiscal(?: year)?)\s?20\d{2}\b'
+    declined: false
+
+- id: brief-3-valuation-aapl-pe
+  question: "What is AAPL's trailing P/E right now?"
+  expected:
+    tools_all_of: [get_valuation]
+    citation_source_types: [fundamental]
+    declined: false
+
+- id: brief-4-risk-diff-nvda
+  question: "What new risk factors did NVDA add in its latest 10-K versus the prior year?"
+  expected:
+    tools_any_of: [diff_risk_factors, search_filings]
+    citation_source_types: [filing]
+    declined: false
+
+- id: brief-5-msft-revenue-and-mdna
+  question: "How did MSFT's revenue grow last year, and what did management attribute it to?"
+  expected:
+    tools_all_of: [search_filings]
+    tools_any_of: [get_fundamentals, compare_companies]
+    citation_source_types: [fundamental, filing]
+    declined: false
+
+- id: brief-6-forward-guidance-declined
+  question: "What is the company's forward guidance for next quarter?"
+  expected:
+    declined: true
+    decline_reason_contains: "The tracker holds reported historicals only."
+
+- id: extra-7-compare-gross-margin-reworded
+  question: "Across the tracked companies, whose gross margin was widest in its most recent fiscal year?"
+  expected:
+    tools_all_of: [compare_companies]
+    citation_source_types: [fundamental]
+    answer_regex: '(?i)\b(?:FY|fiscal(?: year)?)\s?20\d{2}\b'
+    declined: false
+
+- id: extra-8-valuation-nvda-pe
+  question: "What is NVDA's trailing price-to-earnings ratio at the moment?"
+  expected:
+    tools_all_of: [get_valuation]
+    citation_source_types: [fundamental]
+    declined: false
+
+- id: extra-9-insider-msft
+  question: "What has MSFT insider buying and selling looked like recently?"
+  expected:
+    tools_all_of: [get_insider_activity]
+    citation_source_types: [insider]
+    declined: false
+
+- id: extra-10-risk-diff-aapl-reworded
+  question: "How did AAPL's risk factor disclosures change between its two most recent 10-K filings?"
+  expected:
+    tools_any_of: [diff_risk_factors, search_filings]
+    citation_source_types: [filing]
+    declined: false
+
+- id: extra-11-non-universe-tesla
+  question: "What is Tesla's margin?"
+  expected:
+    declined: true
+
+- id: extra-12-forward-looking-aapl
+  question: "Where will AAPL revenue be next year?"
+  expected:
+    declined: true
+    decline_reason_contains: "The tracker holds reported historicals only."
