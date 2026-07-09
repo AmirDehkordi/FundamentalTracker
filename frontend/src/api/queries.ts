@@ -15,8 +15,9 @@ import type {
   ValuationOut,
 } from "@/api/contracts";
 
-/** Backend-supported price windows. MAX in the UI maps to "2y" (the widest window stored). */
-export type PriceRange = "1m" | "6m" | "1y" | "2y";
+/** Backend-supported price windows. The chart fetches "3y" once (2y displayed + ~1y so the 150-day
+ *  MA is defined from the first visible day) and slices client-side; the UI's MAX button shows 2y. */
+export type PriceRange = "1m" | "6m" | "1y" | "2y" | "3y";
 
 /** The tracked universe for the sidebar. Live endpoint. */
 export function useCompanies() {
@@ -76,14 +77,15 @@ export function useAllFundamentals(tickers: string[]) {
 }
 
 /**
- * Daily prices + 10-K markers. Always fetches the full 2y window; the chart slices it client-side per
- * range selector, so switching ranges is instant and re-uses one cache entry.
+ * Daily prices + 10-K markers. Fetches 3y (2y displayed + ~1y of MA warmup); the chart computes the
+ * 150-day MA over the full series then slices it client-side per range selector, so the overlay is
+ * defined across the whole visible window and switching ranges is instant on one cache entry.
  */
 export function usePrices(ticker: string | null) {
   return useQuery<PricesOut, ApiError>({
     queryKey: ["prices", ticker],
     queryFn: () =>
-      apiFetch<PricesOut>(`/api/companies/${ticker}/prices?range=2y`),
+      apiFetch<PricesOut>(`/api/companies/${ticker}/prices?range=3y`),
     enabled: ticker != null,
   });
 }

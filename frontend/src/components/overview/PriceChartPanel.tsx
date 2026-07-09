@@ -16,15 +16,17 @@ import { withMovingAverage } from "@/lib/series";
 import { useSelection } from "@/state/selection";
 
 const DAY = 86_400_000;
-// Matches the backend's _RANGE_DAYS so the client window equals the server basis to the day.
+// Display windows (the query fetches a wider 3y so the 150-day MA is warmed before the first visible
+// day). MAX caps at 2y — NOT the full fetched span — so its earliest ~1y stays invisible warmup and
+// the MA overlay is defined from the very first bar the user sees.
 const RANGE_DAYS: Record<RangeKey, number> = {
   "1m": 31,
   "6m": 183,
   "1y": 366,
-  max: Number.POSITIVE_INFINITY,
+  max: 731,
 };
 
-/** Slice the full 2y series back from the latest stored trading date (never "today"). Generic so the
+/** Slice the full 3y series back from the latest stored trading date (never "today"). Generic so the
  *  moving-average field survives the slice. */
 function sliceRows<T extends PriceRow>(rows: T[], range: RangeKey): T[] {
   if (rows.length === 0) return rows;

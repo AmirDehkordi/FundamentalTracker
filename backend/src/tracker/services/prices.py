@@ -14,8 +14,10 @@ from sqlalchemy.orm import Session
 
 from tracker.db.models import Company, Filing, Price
 
-# range key -> lookback days, measured from the latest stored trading date.
-_RANGE_DAYS = {"1m": 31, "6m": 183, "1y": 366, "2y": 731}
+# range key -> lookback days, measured from the latest stored trading date. "3y" is the fetch window
+# the chart uses (2y displayed + ~1y of history so the 150-day MA overlay is defined from the first
+# visible day); the UI never labels a "3y" button.
+_RANGE_DAYS = {"1m": 31, "6m": 183, "1y": 366, "2y": 731, "3y": 1096}
 _DEFAULT_RANGE = "2y"
 
 
