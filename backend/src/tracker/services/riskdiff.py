@@ -223,25 +223,29 @@ def _pair(prior_paras: list[str], latest_paras: list[str]) -> tuple[list[str], l
             used_prior.add(i)
             used_latest.add(bucket.pop())
 
+    # Fuzzy-pair the residual at WORD granularity with autojunk off. On long 1A
+    # paragraphs char-level autojunk=True craters ratio() (it junks every common
+    # letter), misclassifying a reworded risk factor as both removed AND added.
+    # Char-level autojunk=False is correct but O(n^2) slow; ~50-word sequences are
+    # accurate (autojunk off) and ~300x faster — NVDA drops from ~14s to ~0.05s.
+    # (_reconstruct still matches characters — it needs the exact overlap run.)
+    prior_w = [pn.split() for pn in prior_n]
+    latest_w = [ln.split() for ln in latest_n]
     candidates: list[tuple[float, int, int]] = []
-    for i in range(len(prior_n)):
+    for i in range(len(prior_w)):
         if i in used_prior:
             continue
-        pn = prior_n[i]
-        for j in range(len(latest_n)):
+        pw = prior_w[i]
+        for j in range(len(latest_w)):
             if j in used_latest:
                 continue
-            ln = latest_n[j]
-            # O(1) length bound: ratio = 2·M/(la+lb) ≤ 2·min(la,lb)/(la+lb); skip before building a
-            # matcher when even a perfect overlap can't reach the threshold.
-            la, lb = len(pn), len(ln)
-            if 2.0 * min(la, lb) / (la + lb) < SIMILARITY_THRESHOLD:
+            lw = latest_w[j]
+            la, lb = len(pw), len(lw)
+            # O(1) length bound: ratio ≤ 2·min(la,lb)/(la+lb); skip before building a matcher.
+            if la == 0 or lb == 0 or 2.0 * min(la, lb) / (la + lb) < SIMILARITY_THRESHOLD:
                 continue
-            # autojunk=True (default): treat very common characters as junk. On multi-hundred-char
-            # 1A paragraphs it makes find_longest_match ~100x faster; the ratio shift is immaterial
-            # to a 0.75 threshold. (_reconstruct keeps autojunk off — it needs the exact overlap.)
-            matcher = SequenceMatcher(None, pn, ln)
-            if matcher.quick_ratio() < SIMILARITY_THRESHOLD:  # O(n) char-multiset upper bound
+            matcher = SequenceMatcher(None, pw, lw, autojunk=False)
+            if matcher.quick_ratio() < SIMILARITY_THRESHOLD:  # O(n) upper bound
                 continue
             ratio = matcher.ratio()
             if ratio >= SIMILARITY_THRESHOLD:
