@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { App } from "@/App";
 import { ApiError } from "@/api/client";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { SelectionProvider } from "@/state/selection";
 
 const queryClient = new QueryClient({
@@ -34,9 +35,11 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <SelectionProvider>
-        <App />
-      </SelectionProvider>
+      <TooltipProvider delayDuration={150}>
+        <SelectionProvider>
+          <App />
+        </SelectionProvider>
+      </TooltipProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

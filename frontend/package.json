@@ -14,6 +14,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "test": "vitest run",
     "gen:types": "openapi-typescript http://localhost:8000/openapi.json -o src/api/types.ts"
   },
   "dependencies": {
@@ -32,6 +33,7 @@
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "recharts": "^2.15.4",
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
@@ -53,6 +55,7 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.1",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vitest": "^2.1.9"
   }
 }
