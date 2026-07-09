@@ -46,10 +46,11 @@ export const METRIC_POLARITY: Record<string, Polarity> = {
   net_margin: "up-good",
   fcf_margin: "up-good",
   fcf_conversion: "up-good",
-  incremental_operating_margin: "up-good",
   cost_of_revenue: "up-bad",
   shares_diluted: "up-bad", // dilution rising is bad
   capex: "neutral",
+  capex_intensity: "neutral", // more investment is neither inherently good nor bad
+  reinvestment_ratio: "neutral",
 };
 
 export function polarityOf(key: string): Polarity {
@@ -73,7 +74,7 @@ export const MARGIN_KEYS = new Set([
 
 /**
  * Metrics whose per-company YoY the Compare tab can derive client-side (levels + margins). Excludes
- * ratios/growth that have no meaningful YoY (incremental_operating_margin, fcf_conversion, revenue_yoy).
+ * ratios/growth that have no meaningful YoY (fcf_conversion, reinvestment_ratio, revenue_yoy).
  */
 export const YOY_ELIGIBLE = new Set([
   "revenue",
@@ -96,8 +97,7 @@ export interface MetricRow {
   yoyKind: YoyKind;
 }
 
-// Fundamentals table rows, in display order. incremental_operating_margin is the one row read from
-// `yoy` (it is inherently a per-FY year-over-year ratio, absent from `metrics`).
+// Fundamentals table rows, in display order.
 export const METRIC_ROWS: MetricRow[] = [
   {
     key: "revenue",
@@ -205,10 +205,17 @@ export const METRIC_ROWS: MetricRow[] = [
     yoyKind: "none",
   },
   {
-    key: "incremental_operating_margin",
-    label: "Incremental op. margin",
+    key: "capex_intensity",
+    label: "Capex intensity",
     group: "ratio",
-    valueSource: "yoy",
+    valueSource: "metrics",
+    yoyKind: "margin-pp",
+  },
+  {
+    key: "reinvestment_ratio",
+    label: "Capex / CFO",
+    group: "ratio",
+    valueSource: "metrics",
     yoyKind: "none",
   },
 ];
@@ -263,10 +270,7 @@ export const COMPARE_METRIC_GROUPS: CompareMetricGroup[] = [
       { value: "net_margin", label: "Net margin" },
       { value: "fcf_margin", label: "FCF margin" },
       { value: "fcf_conversion", label: "FCF conversion" },
-      {
-        value: "incremental_operating_margin",
-        label: "Incremental op. margin",
-      },
+      { value: "capex_intensity", label: "Capex intensity" },
     ],
   },
   {

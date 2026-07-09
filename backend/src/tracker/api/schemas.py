@@ -47,8 +47,8 @@ class MetricValue(APIModel):
       USD/shares        -> '$1.19'
       shares            -> count
       percent           -> value*100, 1dp, '%'   (margin LEVELS + level YoY: 0.114 -> '+11.4%')
-      ratio             -> 'x'-suffixed          (P/E, P/S, FCF conversion, incremental op. margin)
-      percentage_points -> value*100, 1dp, ' pp' (margin YoY: 0.02 -> '+2.0 pp', NOT a % change)
+      ratio             -> 'x'-suffixed          (P/E, P/S, FCF conversion, reinvestment ratio)
+      percentage_points -> value*100, 1dp, 'pp'  (margin YoY: 0.02 -> '+2.0pp', NOT a % change)
 
     `reason` is populated iff `value is None`; the UI renders 'n.m. — <reason>'. `superseded_*`
     surface a restatement (latest-filed-wins kept the prior value visible) so the UI can tooltip
@@ -78,6 +78,9 @@ class CompanyOut(APIModel):
     latest_fiscal_year: int | None = None
     latest_period_end: date | None = None
     latest_fy_label: str | None = None  # "FY2025 (ended 2025-09-27)"
+    # latest close x latest-reported-FY diluted shares (same approximation as trailing P/S); None
+    # when either input is missing. Sort-only field — no MetricValue reason needed.
+    market_cap: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -87,12 +90,11 @@ class CompanyOut(APIModel):
 
 class FundamentalsRow(APIModel):
     """One fiscal year. `metrics` = raw canonical concepts, `fcf`, and the derived margins
-    (gross_margin, operating_margin, net_margin, fcf_margin, fcf_conversion) in display order.
-    `yoy` carries this-FY-vs-prior-FY for the raw levels + `fcf` (unit 'percent', % change), the
-    margins + fcf_conversion (unit 'percentage_points', a pp delta), `incremental_operating_margin`
-    (inherently a YoY ratio), and the dollar deltas `delta_revenue` / `delta_operating_income` (unit
-    'USD', the chart's incremental bars). Each value is a MetricValue, so a None YoY carries its
-    reason ('sign change / non-positive base')."""
+    (gross_margin, operating_margin, net_margin, fcf_margin, fcf_conversion, capex_intensity,
+    reinvestment_ratio) in display order. `yoy` carries this-FY-vs-prior-FY for the raw levels +
+    `fcf` (unit 'percent', % change) and the margins + fcf_conversion + capex_intensity +
+    reinvestment_ratio (unit 'percentage_points', a pp delta). Each value is a MetricValue, so a
+    None YoY carries its reason ('sign change / non-positive base')."""
 
     fiscal_year: int
     period_end: date
@@ -250,6 +252,32 @@ class RiskDiffSummaryOut(APIModel):
     note: str | None = None
 
 
+class RiskThemeItem(APIModel):
+    """One clustered risk theme grouping several diff excerpts, distinct from RiskSummaryItem (a
+    single individual risk item). Grounded ONLY in the deterministic diff text."""
+
+    title: str  # <= 6 words
+    summary: str  # <= 30 words
+    paragraph_count: int  # how many source excerpts this theme groups
+
+
+class RiskDiffThemesOut(APIModel):
+    """Top-3 thematic clusters of newly added/heightened and top-3 of removed/reduced risks — the
+    full diff grouped into themes, not individual top items (that is RiskDiffSummaryOut, a separate,
+    untouched vertical). `available=False` mirrors RiskDiffOut's degraded state; a diff with two
+    filed years but no net changes is `available=True` with both theme lists empty."""
+
+    ticker: str
+    cik: int
+    item: str  # "1A"
+    latest: FilingRef | None
+    prior: FilingRef | None
+    added_themes: list[RiskThemeItem]  # top 3
+    removed_themes: list[RiskThemeItem]  # top 3
+    available: bool = True
+    note: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # insider (Form 4 summary)
 # ---------------------------------------------------------------------------
@@ -272,6 +300,7 @@ class InsiderSummaryOut(APIModel):
     window_365d: InsiderWindow
     caveat: str  # standing 10b5-1 caveat line (signal not oversold)
     has_data: bool  # False -> deliberate empty state
+    history_capped: bool  # True -> ingestion's per-company filing cap may hide older activity
 
 
 # ---------------------------------------------------------------------------

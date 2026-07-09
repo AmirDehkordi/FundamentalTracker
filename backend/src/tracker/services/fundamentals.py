@@ -47,7 +47,8 @@ DERIVED_UNITS: dict[str, MetricUnit] = {
     "net_margin": "percent",
     "fcf_margin": "percent",
     "fcf_conversion": "ratio",
-    "incremental_operating_margin": "ratio",
+    "capex_intensity": "percent",
+    "reinvestment_ratio": "ratio",
     "revenue_yoy": "percent",
 }
 
@@ -238,13 +239,11 @@ def compute_metric(
         cfo = _concept_value(facts, "cfo")
         capex = _concept_value(facts, "capex")
         return metrics.build_fcf_conversion(cfo, capex, _concept_value(facts, "net_income"))
-    if metric_key == "incremental_operating_margin":
-        prior = index.get(reported.fiscal_year - 1)
-        prior_oi = _concept_value(prior, "operating_income") if prior else None
-        prior_rev = _concept_value(prior, "revenue") if prior else None
-        return metrics.build_incremental_operating_margin(
-            _concept_value(facts, "operating_income"), prior_oi, rev, prior_rev
-        )
+    if metric_key == "capex_intensity":
+        return metrics.build_capex_intensity(_concept_value(facts, "capex"), rev)
+    if metric_key == "reinvestment_ratio":
+        cfo = _concept_value(facts, "cfo")
+        return metrics.build_reinvestment_ratio(_concept_value(facts, "capex"), cfo)
     if metric_key == "revenue_yoy":
         # Same basis as the per-FY yoy["revenue"] cell, so compare and the matrix never disagree.
         prior = index.get(reported.fiscal_year - 1)
@@ -285,7 +284,7 @@ def _build_row(facts: FyFacts, prior: FyFacts | None) -> FyRow:
     capex = _concept_value(facts, "capex")
 
     # Insertion order = display order (KPI row + table, PLAN.md §9). fcf (a derived USD level) sits
-    # after capex; the five ratios follow the raw concepts.
+    # after capex; the seven ratios follow the raw concepts.
     metric_cells: dict[str, Metric] = {
         "revenue": _raw_cell(facts, "revenue"),
         "cost_of_revenue": _raw_cell(facts, "cost_of_revenue"),
@@ -302,6 +301,8 @@ def _build_row(facts: FyFacts, prior: FyFacts | None) -> FyRow:
         "net_margin": metrics.plain(metrics.net_margin(ni, rev), "percent"),
         "fcf_margin": metrics.plain(metrics.fcf_margin(cfo, capex, rev), "percent"),
         "fcf_conversion": metrics.build_fcf_conversion(cfo, capex, ni),
+        "capex_intensity": metrics.build_capex_intensity(capex, rev),
+        "reinvestment_ratio": metrics.build_reinvestment_ratio(capex, cfo),
     }
 
     def prior_value(concept: str) -> Decimal | None:
@@ -313,12 +314,6 @@ def _build_row(facts: FyFacts, prior: FyFacts | None) -> FyRow:
     prev_ni = prior_value("net_income")
     prev_cfo = prior_value("cfo")
     prev_capex = prior_value("capex")
-
-    def usd_delta(curr: Decimal | None, prev: Decimal | None) -> Metric:
-        """Per-FY dollar delta (curr − prev) in USD — the chart's incremental bars."""
-        if curr is None or prev is None:
-            return Metric(value=None, unit="USD")
-        return Metric(value=float(curr - prev), unit="USD")
 
     yoy_cells: dict[str, Metric] = {
         # Absolute levels + fcf: relative % change (build_yoy).
@@ -358,12 +353,12 @@ def _build_row(facts: FyFacts, prior: FyFacts | None) -> FyRow:
             metrics.fcf_conversion(cfo, capex, ni),
             metrics.fcf_conversion(prev_cfo, prev_capex, prev_ni),
         ),
-        # Incremental operating margin (ΔOpInc/ΔRev) + the dollar deltas the card plots.
-        "incremental_operating_margin": metrics.build_incremental_operating_margin(
-            oi, prev_oi, rev, prev_rev
+        "capex_intensity": metrics.build_margin_change(
+            metrics.capex_intensity(capex, rev), metrics.capex_intensity(prev_capex, prev_rev)
         ),
-        "delta_revenue": usd_delta(rev, prev_rev),
-        "delta_operating_income": usd_delta(oi, prev_oi),
+        "reinvestment_ratio": metrics.build_margin_change(
+            metrics.reinvestment_ratio(capex, cfo), metrics.reinvestment_ratio(prev_capex, prev_cfo)
+        ),
     }
 
     return FyRow(

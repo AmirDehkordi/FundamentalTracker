@@ -45,9 +45,8 @@ _FUNDAMENTAL_KEYS: frozenset[str] = CANONICAL_CONCEPTS | {
     "net_margin",
     "fcf_margin",
     "fcf_conversion",
-    "incremental_operating_margin",
-    "delta_revenue",
-    "delta_operating_income",
+    "capex_intensity",
+    "reinvestment_ratio",
 }
 
 # The metrics compare can value: the 9 canonical concepts + the 7 derived ratios. Hand-spelled as a
@@ -68,7 +67,8 @@ CompareMetric = Literal[
     "net_margin",
     "fcf_margin",
     "fcf_conversion",
-    "incremental_operating_margin",
+    "capex_intensity",
+    "reinvestment_ratio",
     "revenue_yoy",
 ]
 
@@ -132,7 +132,7 @@ class GetFundamentalsArgs(BaseModel):
             "Subset of metric keys to return. Allowed: revenue, cost_of_revenue, gross_profit, "
             "operating_income, net_income, eps_diluted, cfo, capex, shares_diluted, fcf, "
             "gross_margin, operating_margin, net_margin, fcf_margin, fcf_conversion, "
-            "incremental_operating_margin, delta_revenue, delta_operating_income. Omit for all. "
+            "capex_intensity, reinvestment_ratio. Omit for all. "
             "Unknown names are ignored (see `ignored_concepts`)."
         ),
     )
@@ -398,6 +398,7 @@ def get_insider_activity(session: Session, args: GetInsiderActivityArgs) -> dict
         "cik": res.cik,
         "has_data": res.has_data,  # window-based: the standing caveat is the provenance line
         "caveat": res.caveat,
+        "history_capped": res.history_capped,  # older activity may exist but wasn't ingested
         "window_90d": _window(res.window_90d),
         "window_365d": _window(res.window_365d),
     }

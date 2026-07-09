@@ -94,8 +94,8 @@ export function CompareChart({
   const unit = rows[0]?.value.unit ?? "USD";
   const data: CmpDatum[] = rows.map((r) => ({
     ticker: r.ticker,
-    // n.m. companies (e.g. NVDA capex) get a 0-height bar so their "n.m." label stays on-canvas at the
-    // baseline instead of being extrapolated off the plot area by Recharts.
+    // n.m. companies get a 0-height bar so their "n.m." label stays on-canvas at the baseline instead
+    // of being extrapolated off the plot area by Recharts.
     barValue: r.value.value ?? 0,
     valueLabel: valueFormat
       ? r.value.value != null

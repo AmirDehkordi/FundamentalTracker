@@ -52,13 +52,29 @@ copy and never quoting the user's typos; declines keep their polite one-liner an
 in-scope follow-ups. Loop/endpoint failures are `kind="error"`. The citation-enforcement retry now
 fires only for real `answer`s, so a clarification containing a digit is never pressured to cite.
 
-## `operating_leverage` → `incremental_operating_margin`
+## Own metrics: FCF quality, paired with capex intensity
 
-The metric ΔOperatingIncome ÷ ΔRevenue **is** the incremental operating margin — how much of each new
-revenue dollar reaches operating income. "Operating leverage" is a looser, overloaded term; the new
-name says exactly what the number is, and the formula and guards are unchanged. The fundamentals
-payload additionally exposes the per-FY dollar deltas `delta_revenue` and `delta_operating_income`
-(unit USD) that the card plots as incremental bars.
+The two own metrics tell one causally-linked story rather than two disconnected ratios:
+
+- **FCF margin + FCF conversion** (earnings quality) — free cash flow ÷ revenue, and free cash flow ÷
+  net income. Conversion near or above 1.0 says reported profit is turning into cash.
+- **Capex intensity + reinvestment ratio** (capital intensity) — `capex_intensity` = capex ÷ revenue,
+  `reinvestment_ratio` = capex ÷ CFO. Both are pure functions of concepts already ingested (capex,
+  revenue, cfo — zero new ingestion), guarded None-with-reason on a non-positive denominator
+  (`REASON_CAPEX_INTENSITY_UNDEFINED` / `REASON_REINVESTMENT_UNDEFINED`).
+
+They are paired deliberately: rising capex intensity is the mechanical driver of FCF-margin
+compression (capex is subtracted from CFO to get FCF), so reading the two Overview cards side by side
+answers the current-cycle question directly — is the AI infrastructure build-out outrunning the cash
+the business generates? Across this universe it separates the hyperscaler spenders (MSFT, GOOGL, both
+~23% capex intensity in the latest FY) from the AI-demand receiver (NVDA, ~3%, whose capex is R&D/office
+footprint rather than data-center build-out), the power-infrastructure beneficiary (ETN, ~3%, a supplier
+into the same build-out rather than a builder), and the asset-light abstainer (AAPL, ~3%).
+
+This replaces the previous own metric, `operating_leverage`/`incremental_operating_margin`
+(ΔOperatingIncome ÷ ΔRevenue) — see PLAN.md §12 decision log for why. `incremental_operating_margin`,
+`delta_revenue`, and `delta_operating_income` are removed from the fundamentals payload; nothing else
+depended on them.
 
 ## Margin YoY in percentage points
 
@@ -67,6 +83,14 @@ delta** (`curr − prev`) under a new `percentage_points` `MetricUnit`, distinct
 change: a margin moving 40%→42% is `+2.0 pp`, not `+5%`. Absolute levels keep their relative %-change
 YoY. Adding the unit was a deliberate, contained unfreeze of `MetricUnit`; the frontend renders it
 with a ` pp` suffix.
+
+## Capex tag fallback (NVDA)
+
+NVDA's 10-Ks stopped tagging `PaymentsToAcquirePropertyPlantAndEquipment` after FY2012 and picked up
+`PaymentsToAcquireProductiveAssets` — a combined PP&E + intangible-asset-purchases line — starting
+FY2022; FY2013-FY2021 carry no annual capex tag at all (a genuine reporting gap, not a fallback miss).
+`capex` joined `gross_profit`/`operating_income` as a concept needing a per-company tag fallback chain,
+the same pattern as GOOGL's derived gross profit.
 
 ## Insider windows: identical 90d/365d is correct, not a bug
 

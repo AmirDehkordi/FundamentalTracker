@@ -28,8 +28,8 @@ import { describeMetric, formatPercent } from "@/lib/format";
 import { metricAt } from "@/lib/metrics";
 import { useSelection } from "@/state/selection";
 
-// Paired with OperatingLeverage/IncrementalOperatingMargin: identical container height (200) + margin +
-// XAxis height (40) so both FY category axes land on one baseline.
+// Paired with CapexIntensity: identical container height (200) + margin + XAxis height (40) so both FY
+// category axes land on one baseline.
 const CHART_HEIGHT = 200;
 
 interface EqDatum {
@@ -81,13 +81,18 @@ function EqTooltip({ active, payload }: TooltipProps<number, string>) {
 
 function EarningsQualityChart({ rows }: { rows: FundamentalsRow[] }) {
   const data = toData(rows);
-  // A company with capex never reported (e.g. NVDA here) has no FCF at all — an empty bar chart reads as
+  // A company with capex never reported for any FY has no FCF at all — an empty bar chart reads as
   // broken, so state the fact instead.
   if (data.every((d) => d.fcfMargin == null)) {
     return (
-      <EmptyState>
-        Free cash flow isn&apos;t reported for this company.
-      </EmptyState>
+      <div
+        className="flex items-center justify-center text-center"
+        style={{ height: CHART_HEIGHT }}
+      >
+        <EmptyState>
+          Free cash flow isn&apos;t reported for this company.
+        </EmptyState>
+      </div>
     );
   }
   const { ticks, top } = roundTicks(data);
@@ -98,7 +103,7 @@ function EarningsQualityChart({ rows }: { rows: FundamentalsRow[] }) {
         <ComposedChart data={data} margin={CHART_MARGIN}>
           <CartesianGrid {...gridProps} />
           {/* Single-line FY axis (conversion moved off the ticks into the legend/tooltip); height 40 to
-              align its baseline with the incremental-margin card's two-line axis. */}
+              align its baseline with the paired capex-intensity card. */}
           <XAxis
             dataKey="fy"
             {...axisBase}
@@ -129,7 +134,7 @@ function EarningsQualityChart({ rows }: { rows: FundamentalsRow[] }) {
       <ChartLegend
         items={[
           { label: "FCF margin", color: CHART.accent },
-          { label: "FCF conversion — on hover", color: CHART.text3 },
+          { label: "FCF conversion (on hover)", color: CHART.text3 },
         ]}
       />
     </div>

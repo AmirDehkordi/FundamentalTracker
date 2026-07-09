@@ -30,11 +30,16 @@ operating_income: OperatingIncomeLoss -> derive revenue - cost_of_revenue - sga 
 sga:              SellingGeneralAndAdministrativeExpense            (derivation input only)
 rnd:              ResearchAndDevelopmentExpense                     (derivation input only)
 cfo:              NetCashProvidedByUsedInOperatingActivities
-capex:            PaymentsToAcquirePropertyPlantAndEquipment
+capex:            PaymentsToAcquirePropertyPlantAndEquipment -> PaymentsToAcquireProductiveAssets
 shares_diluted:   WeightedAverageNumberOfDilutedSharesOutstanding   (units: shares)
 Derivation is a designed-for path, not an exception: neither GOOGL nor ETN tags GrossProfit, and ETN
 stopped tagging OperatingIncomeLoss after FY2019. Derived rows carry source_tag="derived:..." plus the
 accession of the latest-filed input, and surface None-with-reason when a component is missing.
+NVDA capex trap: its 10-Ks tagged the PP&E-only element only through FY2012, then went quiet on capex
+entirely, then picked up PaymentsToAcquireProductiveAssets (a combined PP&E + intangible-asset-purchases
+line) starting FY2022 (verified against the cached companyfacts JSON). FY2013-FY2021 have no annual
+capex tag under any us-gaap element in the cache — a genuine reporting gap, not a fallback miss; capex
+correctly resolves to None-with-reason for those years rather than being invented.
 
 ## Selecting annual facts (the messy-data core)
 Keep entries where form == "10-K" (also excludes 10-K/A; amendments arrive via latest-filed-wins) AND

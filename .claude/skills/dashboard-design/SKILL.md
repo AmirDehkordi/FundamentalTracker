@@ -30,7 +30,7 @@ Accent (single, warm gold — desaturated so it doesn't vibrate on dark):
 Semantics (desaturated for dark):
   --pos #45C88A  --neg #E5736B  --warn #D98E3C   (deltas ALSO carry an arrow/sign — never colour alone)
 Fixed per-ticker series colours (same everywhere: charts, compare, legends) — one muted family, none
-colliding with a semantic or the accent (NVDA/MSFT/AAPL also echo the price/incremental-margin charts):
+colliding with a semantic or the accent (NVDA/MSFT/AAPL also echo the price chart):
   NVDA #6E9BF0 (blue) · MSFT #2DB6A6 (teal) · AAPL #A78BFA (violet) · GOOGL #CE7CA6 (rose) · ETN #D68A5A (terracotta)
 
 HARD RULE — contrast: every text/background pair >= 4.5:1 (3:1 for >= 20px semibold). When adding ANY new
@@ -47,6 +47,11 @@ Company names use display names (Microsoft, Apple, Alphabet, NVIDIA, Eaton), nev
 
 TWO-LINE HEADER RULE: a fiscal column header is at most two lines — the period on top, the ended-date below
 in text-3 ("FY2025" over "ended 27 Sep 2025"). One date format app-wide: "ended 27 Sep 2025" (never "Sept").
+Exception: the fundamentals table packs up to 4 FY columns + YoY into a 7/12 panel, where "ended " pushes
+the nowrap sub-label past the column budget and forces horizontal scroll — there the sub-label shrinks to
+11px (below the 12px caption floor, a deliberate one-off via an arbitrary Tailwind value, not a new scale
+step) and abbreviates to "e." ("FY2025" over "e. 27 Sep 2025"); every wider spot (top-bar chip, tooltips)
+keeps the full 12px "ended" phrasing.
 
 POLARITY-MAP RULE: a delta's ARROW shows the direction of change; its COLOUR shows goodness via a per-metric
 polarity (lib/metrics METRIC_POLARITY). Rising costs / rising diluted shares are red though they point up; a
@@ -60,7 +65,7 @@ falling cost is green though it points down; capex is neutral (grey). Zero and n
 │  name muted,  ├ Tabs: Overview | Compare ───────────────────┤                                       │
 │  FY25 badge)  │ Overview: KPI row (5 cards)                 │                                       │
 │               │ LEFT 7/12: fundamentals table, then         │                                       │
-│               │   [earnings-quality | incremental op-margin]│                                       │
+│               │   [earnings-quality | capex intensity]      │                                       │
 │               │ RIGHT 5/12: price chart, then insider,      │                                       │
 │               │   then risk-factors (stacked)               │                                       │
 └──────────────┴─────────────────────────────────────────────┴───────────────────────────────────────┘
@@ -88,7 +93,7 @@ tiny "10-K" label (text-3), nudged inward when near the y-axis. Compare: grouped
 fixed colours, value labels 12px, each bar footnoted with its own FY; a sort toggle orders both the level
 chart and its YoY companion identically. Bars radius 2.
 
-CHART-ALIGNMENT RULE: paired charts (earnings-quality / incremental operating margin) share identical
+CHART-ALIGNMENT RULE: paired charts (earnings-quality / capex intensity) share identical
 container height, margin, and XAxis height so their FY category axes sit on one baseline.
 
 NEVER: pies, 3D, gradients (beyond the 8% area), rainbow palettes, animated chart intros, or a second VISIBLE

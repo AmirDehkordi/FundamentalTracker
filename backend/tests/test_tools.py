@@ -179,6 +179,7 @@ def test_insider_no_data(db_session: Session) -> None:
     out = tools.get_insider_activity(db_session, tools.GetInsiderActivityArgs(ticker="NVDA"))
     assert out["has_data"] is False
     assert out["caveat"]
+    assert out["history_capped"] is False
     assert out["window_90d"]["buy_count"] == 0
     assert out["window_365d"]["sell_count"] == 0
 

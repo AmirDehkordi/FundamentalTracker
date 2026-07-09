@@ -70,28 +70,40 @@ def test_yoy_and_builder() -> None:
     assert flip.value is None and flip.reason == metrics.REASON_YOY_NONPOSITIVE_BASE
 
 
-def test_incremental_operating_margin_value() -> None:
-    assert metrics.incremental_operating_margin(
-        D("130"), D("113.75"), D("400"), D("350")
-    ) == pytest.approx(0.325, rel=1e-9)
-    assert metrics.incremental_operating_margin(None, D("1"), D("2"), D("1")) is None
+def test_capex_intensity_value_and_guards() -> None:
+    assert metrics.capex_intensity(D("20"), D("400")) == pytest.approx(0.05, rel=1e-9)
+    assert metrics.capex_intensity(None, D("400")) is None
+    assert metrics.capex_intensity(D("20"), None) is None
+    assert metrics.capex_intensity(D("20"), D("0")) is None
+    assert metrics.capex_intensity(D("20"), D("-1")) is None
 
 
-def test_incremental_operating_margin_builder_reasons() -> None:
-    declined = metrics.build_incremental_operating_margin(D("50"), D("40"), D("100"), D("110"))
-    assert declined.value is None and declined.reason == metrics.REASON_IOM_REVENUE_DECLINED
-    flat = metrics.build_incremental_operating_margin(D("50"), D("40"), D("1000"), D("995"))
-    assert flat.value is None and flat.reason == metrics.REASON_IOM_REVENUE_FLAT
-    flip = metrics.build_incremental_operating_margin(D("3"), D("-5"), D("110"), D("100"))
-    assert flip.value is None and flip.reason == metrics.REASON_IOM_OPINC_SIGN_FLIP
-    missing = metrics.build_incremental_operating_margin(None, D("1"), D("2"), D("1"))
+def test_capex_intensity_builder() -> None:
+    good = metrics.build_capex_intensity(D("20"), D("400"))
+    assert good.value == pytest.approx(0.05, rel=1e-9) and good.unit == "percent"
+    undefined = metrics.build_capex_intensity(D("20"), D("0"))
+    assert undefined.value is None
+    assert undefined.reason == metrics.REASON_CAPEX_INTENSITY_UNDEFINED
+    missing = metrics.build_capex_intensity(None, D("400"))
     assert missing.value is None and missing.reason is None
-    good = metrics.build_incremental_operating_margin(D("130"), D("113.75"), D("400"), D("350"))
-    assert good.value == pytest.approx(0.325, rel=1e-9) and good.unit == "ratio"
-    # Both revenues zero: the flat guard catches ΔRev == 0, so the division never runs.
-    assert metrics.incremental_operating_margin(D("1"), D("2"), D("0"), D("0")) is None
-    zero_rev = metrics.build_incremental_operating_margin(D("1"), D("2"), D("0"), D("0"))
-    assert zero_rev.value is None and zero_rev.reason == metrics.REASON_IOM_REVENUE_FLAT
+
+
+def test_reinvestment_ratio_value_and_guards() -> None:
+    assert metrics.reinvestment_ratio(D("20"), D("120")) == pytest.approx(1 / 6, rel=1e-9)
+    assert metrics.reinvestment_ratio(None, D("120")) is None
+    assert metrics.reinvestment_ratio(D("20"), None) is None
+    assert metrics.reinvestment_ratio(D("20"), D("0")) is None
+    assert metrics.reinvestment_ratio(D("20"), D("-1")) is None
+
+
+def test_reinvestment_ratio_builder() -> None:
+    good = metrics.build_reinvestment_ratio(D("20"), D("120"))
+    assert good.value == pytest.approx(1 / 6, rel=1e-9) and good.unit == "ratio"
+    undefined = metrics.build_reinvestment_ratio(D("20"), D("0"))
+    assert undefined.value is None
+    assert undefined.reason == metrics.REASON_REINVESTMENT_UNDEFINED
+    missing = metrics.build_reinvestment_ratio(D("20"), None)
+    assert missing.value is None and missing.reason is None
 
 
 def test_build_margin_change_percentage_points() -> None:
@@ -133,9 +145,8 @@ def test_reason_constants_exact_glyphs() -> None:
     assert metrics.REASON_PE_NEGATIVE_EPS == "n.m. — negative EPS"
     assert metrics.REASON_FCF_CONV_UNDEFINED == "undefined — net income ≤ 0"
     assert metrics.REASON_YOY_NONPOSITIVE_BASE == "sign change / non-positive base"
-    assert metrics.REASON_IOM_REVENUE_DECLINED == "n.m. — revenue declined"
-    assert metrics.REASON_IOM_REVENUE_FLAT == "n.m. — revenue change < 1%"
-    assert metrics.REASON_IOM_OPINC_SIGN_FLIP == "n.m. — operating income changed sign"
+    assert metrics.REASON_CAPEX_INTENSITY_UNDEFINED == "undefined — revenue ≤ 0"
+    assert metrics.REASON_REINVESTMENT_UNDEFINED == "undefined — CFO ≤ 0"
 
 
 def test_metric_maps_to_wire_schema() -> None:

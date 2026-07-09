@@ -114,3 +114,15 @@
     kind: clarification
     declined: false
     suggested_followups_min: 2
+
+# Own-metric coverage for capex intensity (replaced incremental operating margin): routes to a
+# fundamentals-backed tool (get_fundamentals per-company, or compare_companies across the universe —
+# both are grounded, FY-labelled answers to a two-company comparison; same tools_any_of pattern as
+# brief-5) and states FY-labelled, %/pp-formatted figures for both companies.
+- id: extra-15-capex-intensity-msft-vs-aapl
+  question: "How capital intensive is MSFT compared to AAPL?"
+  expected:
+    tools_any_of: [get_fundamentals, compare_companies]
+    citation_source_types: [fundamental]
+    answer_regex: '(?i)\b(?:FY|fiscal(?: year)?)\s?20\d{2}\b'
+    declined: false
