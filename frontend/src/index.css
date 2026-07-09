@@ -3,28 +3,29 @@
 @tailwind utilities;
 
 /*
- * Design tokens — the single source of truth (dashboard-design skill, "quiet terminal").
+ * Design tokens — the single source of truth (dashboard-design skill, "graphite terminal").
  * Dark palette only (no light :root); <html class="dark"> is still set so Tailwind's class dark
  * strategy and any dark:-conditioned shadcn CSS resolve consistently. Raw hex (no hsl() wrapper) so
- * no text/background pair rounds below the 4.5:1 contrast floor.
+ * no text/background pair rounds below the 4.5:1 contrast floor. Surfaces are a neutral graphite ramp
+ * (no blue tint); the single accent is amber/gold. Every pair here is WCAG-verified >= 4.5:1.
  */
 @layer base {
   :root {
-    --bg: #0b0f14;
-    --surface-1: #11161d;
-    --surface-2: #171e27;
-    --border: #232c37;
+    --bg: #0c0d0f;
+    --surface-1: #131518;
+    --surface-2: #1b1e22;
+    --border: #2a2e34;
 
-    --text-1: #e7ecf3;
-    --text-2: #a9b4c2;
-    --text-3: #7b8794;
+    --text-1: #ecedef;
+    --text-2: #a8adb5;
+    --text-3: #868d96; /* raised from #7b8794 so captions clear 4.5:1 on surface-2 */
 
-    --accent: #6ea8fe;
-    --accent-bg: #14243d;
+    --accent: #e0a64e; /* amber/gold — links, active tab, focus ring, primary button */
+    --accent-bg: #2a2212;
 
-    --pos: #34d399;
-    --neg: #f87171;
-    --warn: #fbbf24;
+    --pos: #45c88a;
+    --neg: #e5736b;
+    --warn: #d98e3c; /* ochre — kept distinct from the amber accent */
 
     --radius: 0.625rem; /* 10px card radius */
   }

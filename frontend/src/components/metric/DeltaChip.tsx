@@ -5,32 +5,39 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { formatSignedPercent } from "@/lib/format";
+import { formatPp, formatSignedPercent } from "@/lib/format";
+import { type Polarity, toneForDelta } from "@/lib/metrics";
 import { cn } from "@/lib/utils";
 
 // Tint backgrounds need alpha over the token hue; Tailwind can't add alpha to a var()-valued colour,
-// so the tint is an inline rgba while the text colour stays a token class.
+// so the tint is an inline rgba while the text colour stays a token class. (Hues match src/index.css.)
 const TONE = {
-  pos: { text: "text-pos", bg: "rgba(52,211,153,0.14)" },
-  neg: { text: "text-neg", bg: "rgba(248,113,113,0.14)" },
-  neutral: { text: "text-fg-2", bg: "rgba(123,135,148,0.14)" },
+  pos: { text: "text-pos", bg: "rgba(69,200,138,0.14)" },
+  neg: { text: "text-neg", bg: "rgba(229,115,107,0.14)" },
+  neutral: { text: "text-fg-2", bg: "rgba(134,141,150,0.14)" },
 } as const;
 
 const chipClass =
   "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium tabular-nums";
 
 /**
- * A YoY delta as arrow + signed % on a pos/neg tint (never colour alone). `fraction` is a signed
- * fraction (0.114 -> +11.4%). null with a `reason` renders a muted "n.m." chip; null without a reason
- * renders nothing (the caller omits the delta).
+ * A YoY delta as arrow + signed value on a tint (never colour alone). `fraction` is a signed number:
+ * a fraction (0.114 -> "+11.4%") for unit "pct", or a point difference (-0.010 -> "-1.0pp") for "pp".
+ * ARROW reflects the direction of change; COLOUR reflects goodness via `polarity` (a cost falling is
+ * green even though it points down). null with a `reason` renders a muted "n.m." chip; null without a
+ * reason renders nothing (the caller omits the delta).
  */
 export function DeltaChip({
   fraction,
   reason,
+  polarity = "up-good",
+  unit = "pct",
   className,
 }: {
   fraction: number | null | undefined;
   reason?: string | null;
+  polarity?: Polarity;
+  unit?: "pct" | "pp";
   className?: string;
 }) {
   if (fraction == null || !Number.isFinite(fraction)) {
@@ -55,7 +62,7 @@ export function DeltaChip({
     );
   }
 
-  const tone = fraction > 0 ? TONE.pos : fraction < 0 ? TONE.neg : TONE.neutral;
+  const tone = TONE[toneForDelta(fraction, polarity)];
   const Arrow = fraction > 0 ? ArrowUp : fraction < 0 ? ArrowDown : ArrowRight;
 
   return (
@@ -64,7 +71,7 @@ export function DeltaChip({
       style={{ backgroundColor: tone.bg }}
     >
       <Arrow className="size-3" aria-hidden />
-      {formatSignedPercent(fraction)}
+      {unit === "pp" ? formatPp(fraction) : formatSignedPercent(fraction)}
     </span>
   );
 }

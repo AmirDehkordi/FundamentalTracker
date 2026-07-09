@@ -61,12 +61,13 @@ export default {
         pos: "var(--pos)",
         neg: "var(--neg)",
         warn: "var(--warn)",
+        // Per-ticker identity — reassigned off the semantic/accent hues (see src/lib/tickers.ts).
         ticker: {
-          nvda: "#6EA8FE",
-          msft: "#34D399",
+          nvda: "#6E9BF0",
+          msft: "#2DB6A6",
           aapl: "#A78BFA",
-          googl: "#FBBF24",
-          etn: "#F87171",
+          googl: "#E06C9F",
+          etn: "#E8894A",
         },
       },
       borderRadius: {
