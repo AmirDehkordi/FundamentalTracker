@@ -60,6 +60,40 @@ def test_ask_happy_path(db_session: Session) -> None:
     assert [t["tool"] for t in body["trace"]] == ["get_valuation"]
 
 
+def test_ask_sets_token_headers(db_session: Session) -> None:
+    # Three LLM calls (two tool turns + one final), each scripted with usage 11/22 in the fake ->
+    # the endpoint sums them into the X-Tracker-*-Tokens headers (the frozen body can't carry them).
+    fake = FakeOpenAI(
+        [
+            tool_response(tool_call("c1", "get_valuation", {"ticker": "AAPL"})),
+            stop_turn(),
+            final_response({"answer_md": "AAPL P/E is 25.6 for FY2025.", "citations": [_CIT]}),
+        ]
+    )
+    resp = _client(db_session, fake).post("/api/ask", json={"question": "AAPL P/E?"})
+    assert resp.status_code == 200
+    assert resp.headers["X-Tracker-Prompt-Tokens"] == "33"
+    assert resp.headers["X-Tracker-Completion-Tokens"] == "66"
+    assert resp.headers["X-Tracker-Total-Tokens"] == "99"
+
+
+def test_ask_timeout_omits_token_headers(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The timeout path leaves the worker running, so usage must NOT be read -> no token headers.
+    from tracker.api.routers import ask as ask_module
+
+    monkeypatch.setattr(ask_module, "_TIMEOUT_S", 0.05)
+
+    def _slow(*_a: object, **_k: object) -> None:
+        time.sleep(0.3)
+
+    monkeypatch.setattr(ask_module.loop, "run", _slow)
+    resp = _client(db_session, FakeOpenAI([])).post("/api/ask", json={"question": "q"})
+    assert resp.json()["decline_reason"] == "timeout"
+    assert "X-Tracker-Total-Tokens" not in resp.headers
+
+
 def test_ask_refusal_path(db_session: Session) -> None:
     fake = FakeOpenAI(
         [

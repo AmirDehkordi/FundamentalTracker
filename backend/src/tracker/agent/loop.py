@@ -61,8 +61,12 @@ def run(
     client: OpenAI,
     model: str,
     deadline: float | None = None,
+    usage: llm.TokenUsage | None = None,
 ) -> FinalAnswer:
-    """Drive tool turns then a final structured turn. Returns a `FinalAnswer`; never raises."""
+    """Drive tool turns then a final structured turn. Returns a `FinalAnswer`; never raises.
+
+    `usage`, when supplied, accumulates token counts across every LLM call for the endpoint to
+    surface as response headers."""
     messages = _initial_messages(question, history)
     trace: list[ToolTrace] = []
 
@@ -71,7 +75,11 @@ def run(
             break  # soft deadline: stop routing and answer with what we have
         try:
             resp = llm.call_tools(
-                client, model=model, messages=messages, tools=tools.openai_tools_schema()
+                client,
+                model=model,
+                messages=messages,
+                tools=tools.openai_tools_schema(),
+                usage=usage,
             )
         except OpenAIError as exc:
             logger.warning("tool turn failed: %s", exc)
@@ -110,7 +118,7 @@ def run(
                 )
             )
 
-    return _finalize(client, model, messages, trace, deadline)
+    return _finalize(client, model, messages, trace, deadline, usage)
 
 
 def _finalize(
@@ -119,6 +127,7 @@ def _finalize(
     messages: list[dict[str, Any]],
     trace: list[ToolTrace],
     deadline: float | None,
+    usage: llm.TokenUsage | None,
 ) -> FinalAnswer:
     ask = messages + [
         {
@@ -126,7 +135,7 @@ def _finalize(
             "content": "Now write the final answer as JSON matching the schema. Cite every figure.",
         }
     ]
-    answer = _final_call(client, model, ask, deadline)
+    answer = _final_call(client, model, ask, deadline, usage)
     if answer is None:
         return _declined("Internal formatting error.", trace)
 
@@ -142,7 +151,7 @@ def _finalize(
                 "with a citation for every figure.",
             }
         ]
-        corrected = _final_call(client, model, retry, deadline)
+        corrected = _final_call(client, model, retry, deadline, usage)
         if corrected is not None:
             answer = corrected  # accept best effort; the rule is retry-once, not force-decline
 
@@ -156,13 +165,21 @@ def _finalize(
 
 
 def _final_call(
-    client: OpenAI, model: str, messages: list[dict[str, Any]], deadline: float | None
+    client: OpenAI,
+    model: str,
+    messages: list[dict[str, Any]],
+    deadline: float | None,
+    usage: llm.TokenUsage | None,
 ) -> LlmAnswer | None:
     """One structured call; on schema failure retry ONCE with the error appended, else None."""
     for attempt in (1, 2):
         try:
             resp = llm.call_final(
-                client, model=model, messages=messages, response_format=_RESPONSE_FORMAT
+                client,
+                model=model,
+                messages=messages,
+                response_format=_RESPONSE_FORMAT,
+                usage=usage,
             )
         except OpenAIError as exc:
             logger.warning("final call failed: %s", exc)
