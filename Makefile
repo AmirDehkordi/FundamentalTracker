@@ -42,7 +42,7 @@ test-all: ## Full suite incl. integration (needs postgres)
 verify: ## Backend format+lint+types+coverage gates, then the frontend typecheck+build gate
 	uv run ruff format --check .
 	uv run ruff check .
-	uv run mypy backend/src
+	uv run mypy backend/src evals
 	uv run pytest -m "not integration" --cov=tracker --cov-report=term-missing \
 		--cov-fail-under=$(COV_FAIL_UNDER)
 	uv run pytest -m "not integration" --cov=tracker.services --cov-report=term-missing \
@@ -55,8 +55,8 @@ web-setup: ## Install frontend deps from the lockfile (needs Node 20)
 web-verify: ## Frontend: typecheck + lint + format check + production build (needs Node 20)
 	cd frontend && npm run typecheck && npm run lint && npm run format:check && npm run build
 
-evals: ## Run the eval question set against /api/ask (P9 — not yet implemented)
-	uv run python -m evals.runner
+evals: ## Run the eval question set against a running /api/ask (needs a live LLM key)
+	uv run python -m evals.run
 
 seed-dump: ## Dump the dev DB to seed/init/01_seed.sql.gz (auto-restored on a fresh clone)
 	bash scripts/make_seed.sh

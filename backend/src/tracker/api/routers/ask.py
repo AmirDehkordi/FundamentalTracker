@@ -19,11 +19,11 @@ import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session, sessionmaker
 
 from tracker.agent import loop
-from tracker.agent.llm import get_llm_client
+from tracker.agent.llm import TokenUsage, get_llm_client
 from tracker.api import schemas
 from tracker.config import get_settings
 from tracker.db.session import get_sessionmaker
@@ -31,12 +31,15 @@ from tracker.db.session import get_sessionmaker
 router = APIRouter(tags=["ask"])
 logger = logging.getLogger("tracker.agent.api")
 
-_TIMEOUT_S = 30.0  # hard wall-clock: the client is ALWAYS answered within this
+# Hard wall-clock: the client is ALWAYS answered within this. Sized for a reasoning model (gpt-5.5):
+# a cross-modal or risk-diff question routes through several tool turns, each a few-second grounded
+# LLM call, so the honest worst case is ~30-40s. A thinking indicator covers the wait.
+_TIMEOUT_S = 45.0
 # _SOFT_BUDGET_S makes the loop stop starting new turns, but does NOT hard-bound the worker: a turn
 # begun just under it can still run one bounded LLM call (llm._CALL_TIMEOUT_S), so the worker may
 # outlive the response by up to that call. That is a brief, bounded resource hold — the worker owns
 # and closes its own session (see module docstring), so it is never a cross-thread race or a leak.
-_SOFT_BUDGET_S = 27.0
+_SOFT_BUDGET_S = 38.0
 # AskRequest is frozen, so bound oversized input HERE to cap cost/latency (question chars, history
 # turns, and total question+history content so many small turns can't add up unbounded).
 _MAX_QUESTION_CHARS = 4000
@@ -53,6 +56,7 @@ def get_session_factory() -> sessionmaker[Session]:
 @router.post("/ask", response_model=schemas.FinalAnswer, summary="Grounded natural-language Q&A")
 async def ask(
     req: schemas.AskRequest,
+    response: Response,
     session_factory: sessionmaker[Session] = Depends(get_session_factory),
     client: Any = Depends(get_llm_client),  # `Any` keeps `import openai` out of the api layer
 ) -> schemas.FinalAnswer:
@@ -69,6 +73,11 @@ async def ask(
             decline_reason="request too large",
         )
 
+    # FinalAnswer is frozen, so token usage rides in response headers, not the body. The accumulator
+    # is filled on the worker thread; read it ONLY after the executor future completes (the timeout
+    # path leaves the worker running, so it must not touch `usage` there — a cross-thread race).
+    usage = TokenUsage()
+
     def _work() -> schemas.FinalAnswer:
         session = session_factory()
         try:
@@ -79,6 +88,7 @@ async def ask(
                 client=client,
                 model=get_settings().llm_model,
                 deadline=time.monotonic() + _SOFT_BUDGET_S,
+                usage=usage,
             )
         finally:
             session.close()
@@ -86,6 +96,10 @@ async def ask(
     event_loop = asyncio.get_running_loop()
     try:
         answer = await asyncio.wait_for(event_loop.run_in_executor(None, _work), timeout=_TIMEOUT_S)
+        if usage.total > 0:  # a proxy that omits usage leaves this at 0 -> no headers
+            response.headers["X-Tracker-Prompt-Tokens"] = str(usage.prompt)
+            response.headers["X-Tracker-Completion-Tokens"] = str(usage.completion)
+            response.headers["X-Tracker-Total-Tokens"] = str(usage.total)
     except TimeoutError:
         answer = schemas.FinalAnswer(
             answer_md="This question took too long to analyze. Please try a narrower question.",

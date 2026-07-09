@@ -304,6 +304,9 @@ def search_filings(session: Session, args: SearchFilingsArgs) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+_DIFF_EXCERPT_LIMIT = 12  # max added/removed excerpts sent to the model (counts stay exact)
+
+
 class DiffRiskFactorsArgs(BaseModel):
     ticker: str = Field(description="Ticker whose Item 1A risk factors to diff year over year.")
 
@@ -323,6 +326,9 @@ def diff_risk_factors(session: Session, args: DiffRiskFactorsArgs) -> dict[str, 
     if isinstance(company, dict):
         return company
     res = riskdiff.diff_risk_factors(session, company.cik, item="1A")  # never raises
+    # A real 1A diff can carry dozens of excerpts; the full set bloats the model's context (and its
+    # latency) without helping it summarise. Send a representative sample + the true counts (the
+    # exhaustive list is on the dashboard); `truncated` tells the model it is not seeing them all.
     return {
         "ok": True,
         "ticker": res.ticker,
@@ -332,8 +338,9 @@ def diff_risk_factors(session: Session, args: DiffRiskFactorsArgs) -> dict[str, 
         "note": res.note,
         "latest": _filing_ref(res.latest),
         "prior": _filing_ref(res.prior),
-        "added": res.added,
-        "removed": res.removed,
+        "added": res.added[:_DIFF_EXCERPT_LIMIT],
+        "removed": res.removed[:_DIFF_EXCERPT_LIMIT],
+        "truncated": len(res.added) > _DIFF_EXCERPT_LIMIT or len(res.removed) > _DIFF_EXCERPT_LIMIT,
         "counts": {
             "added": res.counts.added,
             "removed": res.counts.removed,

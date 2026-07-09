@@ -30,6 +30,8 @@ logger = logging.getLogger("tracker.agent.loop")
 
 _MAX_TURNS = 5
 _SUMMARY_MAX = 120
+# Tools whose output is 10-K narrative — an answer built on them must carry a `filing` citation.
+_FILING_TOOLS = frozenset({"search_filings", "diff_risk_factors"})
 
 
 class LlmAnswer(BaseModel):
@@ -61,17 +63,26 @@ def run(
     client: OpenAI,
     model: str,
     deadline: float | None = None,
+    usage: llm.TokenUsage | None = None,
 ) -> FinalAnswer:
-    """Drive tool turns then a final structured turn. Returns a `FinalAnswer`; never raises."""
+    """Drive tool turns then a final structured turn. Returns a `FinalAnswer`; never raises.
+
+    `usage`, when supplied, accumulates token counts across every LLM call for the endpoint to
+    surface as response headers."""
     messages = _initial_messages(question, history)
     trace: list[ToolTrace] = []
+    filing_grounded = False  # a filing tool actually RETURNED citable 10-K text (not merely called)
 
     for _turn in range(_MAX_TURNS):
         if deadline is not None and time.monotonic() >= deadline:
             break  # soft deadline: stop routing and answer with what we have
         try:
             resp = llm.call_tools(
-                client, model=model, messages=messages, tools=tools.openai_tools_schema()
+                client,
+                model=model,
+                messages=messages,
+                tools=tools.openai_tools_schema(),
+                usage=usage,
             )
         except OpenAIError as exc:
             logger.warning("tool turn failed: %s", exc)
@@ -109,8 +120,23 @@ def run(
                     result_summary=_truncate(tools.summarize(tc.function.name, result)),
                 )
             )
+            if _filing_has_content(tc.function.name, result):
+                filing_grounded = True
 
-    return _finalize(client, model, messages, trace, deadline)
+    return _finalize(client, model, messages, trace, deadline, usage, filing_grounded)
+
+
+def _filing_has_content(tool: str, result: dict[str, Any]) -> bool:
+    """True only if a filing tool RETURNED citable 10-K text, so demanding a `filing` citation is
+    honest. A count=0 search or an unavailable diff returned nothing to cite — requiring a citation
+    there would pressure the model to fabricate a url/accession it never saw."""
+    if tool not in _FILING_TOOLS or not result.get("ok"):
+        return False
+    if tool == "search_filings":
+        return bool(result.get("count", 0))
+    if tool == "diff_risk_factors":
+        return bool(result.get("available"))
+    return False
 
 
 def _finalize(
@@ -119,30 +145,38 @@ def _finalize(
     messages: list[dict[str, Any]],
     trace: list[ToolTrace],
     deadline: float | None,
+    usage: llm.TokenUsage | None,
+    filing_grounded: bool,
 ) -> FinalAnswer:
-    ask = messages + [
-        {
-            "role": "user",
-            "content": "Now write the final answer as JSON matching the schema. Cite every figure.",
-        }
-    ]
-    answer = _final_call(client, model, ask, deadline)
+    instruction = "Now write the final answer as JSON matching the schema. Cite every figure."
+    if filing_grounded:  # nudge the filing citation on the turn we already pay for
+        instruction += ' You used filing text, so include a citation with source_type "filing".'
+    ask = messages + [{"role": "user", "content": instruction}]
+    answer = _final_call(client, model, ask, deadline, usage)
     if answer is None:
         return _declined("Internal formatting error.", trace)
 
-    # Citation grounding is enforced only heuristically (a digit in answer_md with no citation); we
-    # don't cross-check that a cited accession actually came back from a tool. Adequate for a
-    # prototype, but a fabricated figure in free text can slip through. Retry once, then accept.
+    # Citation grounding is enforced only heuristically (a digit in answer_md with no citation, or
+    # citable filing text used but never cited as source_type "filing"); we don't cross-check that a
+    # cited accession actually came from a tool. `filing_grounded` is set only when a filing tool
+    # RETURNED text, so a no-hit search never demands a citation. Retry once (deadline permitting).
     stated_uncited = not answer.citations and any(c.isdigit() for c in answer.answer_md)
-    if not answer.declined and stated_uncited and not _past(deadline):
+    has_filing_cite = any(c.source_type == "filing" for c in answer.citations)
+    missing_filing = filing_grounded and not has_filing_cite
+    if not answer.declined and (stated_uncited or missing_filing) and not _past(deadline):
+        reqs = []
+        if stated_uncited:
+            reqs.append("cite every figure")
+        if missing_filing:
+            reqs.append('add a source_type "filing" citation (url + item) for the filing text used')
         retry = ask + [
             {
                 "role": "user",
-                "content": "Your answer states figures but cites nothing. Return the same answer "
-                "with a citation for every figure.",
+                "content": f"Your answer is missing citations — {' and '.join(reqs)}. Return the "
+                "same answer, corrected.",
             }
         ]
-        corrected = _final_call(client, model, retry, deadline)
+        corrected = _final_call(client, model, retry, deadline, usage)
         if corrected is not None:
             answer = corrected  # accept best effort; the rule is retry-once, not force-decline
 
@@ -156,13 +190,21 @@ def _finalize(
 
 
 def _final_call(
-    client: OpenAI, model: str, messages: list[dict[str, Any]], deadline: float | None
+    client: OpenAI,
+    model: str,
+    messages: list[dict[str, Any]],
+    deadline: float | None,
+    usage: llm.TokenUsage | None,
 ) -> LlmAnswer | None:
     """One structured call; on schema failure retry ONCE with the error appended, else None."""
     for attempt in (1, 2):
         try:
             resp = llm.call_final(
-                client, model=model, messages=messages, response_format=_RESPONSE_FORMAT
+                client,
+                model=model,
+                messages=messages,
+                response_format=_RESPONSE_FORMAT,
+                usage=usage,
             )
         except OpenAIError as exc:
             logger.warning("final call failed: %s", exc)

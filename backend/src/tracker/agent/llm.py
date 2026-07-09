@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -26,6 +27,27 @@ logger = logging.getLogger("tracker.agent.llm")
 # Bound a single call so a hung provider can't outlive the endpoint's 30s guard by minutes (the SDK
 # default is ~600s). max_retries=0: the loop degrades to a declined answer on error itself.
 _CALL_TIMEOUT_S = 20.0
+
+
+@dataclass
+class TokenUsage:
+    """Accumulates prompt/completion tokens across the several LLM calls of one request. Passed down
+    the loop; the endpoint surfaces the totals as response headers (the frozen FinalAnswer body
+    can't carry them). A provider that omits `usage` leaves the counters at 0 -> no headers."""
+
+    prompt: int = 0
+    completion: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.prompt + self.completion
+
+    def add(self, resp: ChatCompletion) -> None:
+        usage = getattr(resp, "usage", None)
+        if usage is None:
+            return
+        self.prompt += usage.prompt_tokens or 0
+        self.completion += usage.completion_tokens or 0
 
 
 @lru_cache(maxsize=1)
@@ -72,11 +94,15 @@ def call_tools(
     model: str,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
+    usage: TokenUsage | None = None,
 ) -> ChatCompletion:
     """One tool-calling turn. `tool_choice="auto"` lets the model stop calling tools when ready."""
-    return _timed_create(
+    resp = _timed_create(
         client, phase="tools", model=model, messages=messages, tools=tools, tool_choice="auto"
     )
+    if usage is not None:
+        usage.add(resp)
+    return resp
 
 
 def call_final(
@@ -85,13 +111,18 @@ def call_final(
     model: str,
     messages: list[dict[str, Any]],
     response_format: dict[str, Any],
+    usage: TokenUsage | None = None,
 ) -> ChatCompletion:
-    """The final structured turn: no tools, low temperature for stable JSON."""
-    return _timed_create(
+    """The final structured turn: no tools. Temperature is left at the provider default — reasoning
+    models (e.g. gpt-5.5) reject any non-default value; JSON stability comes from `response_format`
+    plus the `LlmAnswer` validation guard in loop.py, not a low temperature."""
+    resp = _timed_create(
         client,
         phase="final",
         model=model,
         messages=messages,
         response_format=response_format,
-        temperature=0.1,
     )
+    if usage is not None:
+        usage.add(resp)
+    return resp
