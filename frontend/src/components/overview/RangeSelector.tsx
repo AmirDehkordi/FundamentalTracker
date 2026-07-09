@@ -1,16 +1,14 @@
 import { cn } from "@/lib/utils";
 
-// Data spans ~2y, so a dedicated "2Y" would be identical to MAX — dropped to avoid a redundant option.
 export const PRICE_RANGES = [
-  { key: "1m", label: "1M" },
   { key: "6m", label: "6M" },
   { key: "1y", label: "1Y" },
-  { key: "max", label: "MAX" },
+  { key: "2y", label: "2Y" },
 ] as const;
 
 export type RangeKey = (typeof PRICE_RANGES)[number]["key"];
 
-/** Segmented control for the price window. MAX renders the full ~2y of stored history. */
+/** Segmented control for the price window. */
 export function RangeSelector({
   value,
   onChange,

@@ -17,13 +17,12 @@ import { useSelection } from "@/state/selection";
 
 const DAY = 86_400_000;
 // Display windows (the query fetches a wider 3y so the 150-day MA is warmed before the first visible
-// day). MAX caps at 2y — NOT the full fetched span — so its earliest ~1y stays invisible warmup and
-// the MA overlay is defined from the very first bar the user sees.
+// day). 2Y caps at 731 days — NOT the full fetched 3y span — so its earliest ~1y stays invisible
+// warmup and the MA overlay is defined from the very first bar the user sees.
 const RANGE_DAYS: Record<RangeKey, number> = {
-  "1m": 31,
   "6m": 183,
   "1y": 366,
-  max: 731,
+  "2y": 731,
 };
 
 /** Slice the full 3y series back from the latest stored trading date (never "today"). Generic so the
@@ -60,7 +59,7 @@ function snapMarkers(
 /** Right ~5/12 panel: price line with a range selector and 10-K filing reference lines. */
 export function PriceChartPanel() {
   const { ticker } = useSelection();
-  const [range, setRange] = useState<RangeKey>("1y");
+  const [range, setRange] = useState<RangeKey>("2y");
   const query = usePrices(ticker);
 
   return (
