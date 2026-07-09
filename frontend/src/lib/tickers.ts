@@ -5,10 +5,10 @@
 // WCAG >= 5.9:1 on surface-1. Keep in lockstep with colors.ticker in tailwind.config.ts and the skill.
 export const TICKER_COLORS: Record<string, string> = {
   NVDA: "#6E9BF0", // blue
-  MSFT: "#2DB6A6", // teal
-  AAPL: "#A78BFA", // violet
-  GOOGL: "#E06C9F", // rose
-  ETN: "#E8894A", // orange
+  MSFT: "#2DB6A6", // teal   (echoes the incremental-margin ΔRevenue series)
+  AAPL: "#A78BFA", // violet (echoes the incremental-margin ΔOperating-income series)
+  GOOGL: "#CE7CA6", // muted rose — toned down to sit in one family with the others
+  ETN: "#D68A5A", // muted terracotta — warm, harmonises with the amber accent, distinct from it
 };
 
 const FALLBACK = "#6E9BF0"; // NVDA blue, for any ticker outside the fixed universe

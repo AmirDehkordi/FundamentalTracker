@@ -66,8 +66,8 @@ export default {
           nvda: "#6E9BF0",
           msft: "#2DB6A6",
           aapl: "#A78BFA",
-          googl: "#E06C9F",
-          etn: "#E8894A",
+          googl: "#CE7CA6",
+          etn: "#D68A5A",
         },
       },
       borderRadius: {

@@ -128,7 +128,7 @@ export function CompareChart({
         <ReferenceLine y={0} stroke={CHART.grid} />
         <RTooltip
           content={<CmpTooltip />}
-          cursor={{ fill: "rgba(110,168,254,0.06)" }}
+          cursor={{ fill: "rgba(224,166,78,0.06)" }}
         />
         <Bar
           dataKey="barValue"

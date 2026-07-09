@@ -29,9 +29,9 @@ Accent (single, warm gold — desaturated so it doesn't vibrate on dark):
   PRIMARY BUTTON: foreground is --bg (dark) on the amber fill (9:1). NEVER --text-1 on accent (1.8:1).
 Semantics (desaturated for dark):
   --pos #45C88A  --neg #E5736B  --warn #D98E3C   (deltas ALSO carry an arrow/sign — never colour alone)
-Fixed per-ticker series colours (same everywhere: charts, compare, legends) — reassigned so NONE collides
-with a semantic or the accent:
-  NVDA #6E9BF0 (blue) · MSFT #2DB6A6 (teal) · AAPL #A78BFA (violet) · GOOGL #E06C9F (rose) · ETN #E8894A (orange)
+Fixed per-ticker series colours (same everywhere: charts, compare, legends) — one muted family, none
+colliding with a semantic or the accent (NVDA/MSFT/AAPL also echo the price/incremental-margin charts):
+  NVDA #6E9BF0 (blue) · MSFT #2DB6A6 (teal) · AAPL #A78BFA (violet) · GOOGL #CE7CA6 (rose) · ETN #D68A5A (terracotta)
 
 HARD RULE — contrast: every text/background pair >= 4.5:1 (3:1 for >= 20px semibold). When adding ANY new
 colour pairing, verify against the token list. Dark or black text on dark surfaces is a build-breaking bug.
