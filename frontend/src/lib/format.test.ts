@@ -4,12 +4,17 @@ import type { MetricValue } from "@/api/contracts";
 import {
   EM_DASH,
   describeMetric,
+  formatDayMonthYear,
+  formatFyBadge,
   formatMetric,
   formatPercent,
   formatPerShare,
+  formatPp,
   formatShares,
   formatSignedPercent,
   formatUsd,
+  formatUsdCompact,
+  pointChange,
   relativeChange,
 } from "@/lib/format";
 
@@ -58,6 +63,45 @@ describe("relativeChange", () => {
     expect(relativeChange(0.6, 0)).toBeNull();
     expect(relativeChange(0.6, -0.1)).toBeNull();
     expect(relativeChange(null, 0.6)).toBeNull();
+  });
+});
+
+describe("pointChange / formatPp", () => {
+  it("subtracts fractions and tolerates a non-positive prior", () => {
+    expect(pointChange(0.292, 0.302)).toBeCloseTo(-0.01, 6);
+    expect(pointChange(0.05, -0.02)).toBeCloseTo(0.07, 6);
+    expect(pointChange(null, 0.3)).toBeNull();
+  });
+  it("renders a signed pp string", () => {
+    expect(formatPp(-0.01)).toBe("-1.0pp");
+    expect(formatPp(0.011)).toBe("+1.1pp");
+    expect(formatPp(null)).toBe(EM_DASH);
+  });
+});
+
+describe("formatUsdCompact", () => {
+  it("drops the trailing .0 for round magnitudes", () => {
+    expect(formatUsdCompact(6e11)).toBe("$600B");
+    expect(formatUsdCompact(1.305e11)).toBe("$130.5B");
+    expect(formatUsdCompact(-2.4e9)).toBe("-$2.4B");
+    expect(formatUsdCompact(null)).toBe(EM_DASH);
+  });
+});
+
+describe("formatFyBadge", () => {
+  it("is 2-digit so it never clips", () => {
+    expect(formatFyBadge(2025)).toBe("FY25");
+    expect(formatFyBadge(2007)).toBe("FY07");
+    expect(formatFyBadge(null)).toBe(EM_DASH);
+  });
+});
+
+describe("formatDayMonthYear", () => {
+  it("is day-first, UTC-pinned, and always 3-letter months (Sep, never Sept)", () => {
+    expect(formatDayMonthYear("2025-09-27")).toBe("27 Sep 2025");
+    expect(formatDayMonthYear("2025-06-30")).toBe("30 Jun 2025");
+    expect(formatDayMonthYear("2026-01-25")).toBe("25 Jan 2026");
+    expect(formatDayMonthYear(null)).toBe(EM_DASH);
   });
 });
 

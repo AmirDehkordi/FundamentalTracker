@@ -7,21 +7,30 @@ export function orDash(s: string | null | undefined): string {
   return s == null || s === "" ? EM_DASH : s;
 }
 
-// UTC-pinned: an ISO date like "2025-09-27" is UTC midnight, so formatting in a local zone west of
-// GMT would render "26 Sep". Forcing timeZone:"UTC" keeps the fiscal date honest everywhere.
-const dayMonthYear = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  timeZone: "UTC",
-});
+// Fixed 3-letter months, NOT Intl: en-GB's ICU renders September as "Sept" (4 letters) in the browser,
+// which drifts from "Sep" elsewhere. A static table guarantees one spelling app-wide. UTC-pinned: an ISO
+// date like "2025-09-27" is UTC midnight, so reading local getters west of GMT would render "26 Sep".
+const SHORT_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
-/** "2025-09-27" -> "27 Sep 2025"; null/invalid -> em dash. */
+/** "2025-09-27" -> "27 Sep 2025" (always "Sep", never "Sept"); null/invalid -> em dash. */
 export function formatDayMonthYear(iso: string | null | undefined): string {
   if (!iso) return EM_DASH;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return EM_DASH;
-  return dayMonthYear.format(d);
+  return `${d.getUTCDate()} ${SHORT_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
 /** Top-bar chip: "Latest: FY2025 · ended 27 Sep 2025"; no reported FY -> em dash. */
@@ -36,11 +45,12 @@ export function formatFyChip(c: {
   return `Latest: FY${c.latest_fiscal_year}${end}`;
 }
 
-/** Compact sidebar badge: "FY2025"; no reported FY -> em dash. */
+/** Compact sidebar badge, 2-digit so it never clips: 2025 -> "FY25"; no reported FY -> em dash. */
 export function formatFyBadge(
   latestFiscalYear: number | null | undefined,
 ): string {
-  return latestFiscalYear == null ? EM_DASH : `FY${latestFiscalYear}`;
+  if (latestFiscalYear == null) return EM_DASH;
+  return `FY${String(latestFiscalYear % 100).padStart(2, "0")}`;
 }
 
 /** KPI/panel fiscal sublabel from a row: "FY2025 · ended 27 Sep 2025". */
@@ -76,6 +86,23 @@ export function formatUsd(v: number | null | undefined): string {
     return `${sign}$${Math.round(a / 1e6).toLocaleString("en-US")}M`;
   if (a >= 1e3) return `${sign}$${(a / 1e3).toFixed(1)}K`;
   return `${sign}$${a.toFixed(2)}`;
+}
+
+/**
+ * Adaptive USD magnitude for axis ticks: 6e11 -> "$600B", 1.305e11 -> "$130.5B" (no trailing ".0").
+ * Distinct from formatUsd, which keeps the ".0" for tables/tooltips; do not merge them.
+ */
+export function formatUsdCompact(v: number | null | undefined): string {
+  if (!isNum(v)) return EM_DASH;
+  const sign = v < 0 ? "-" : "";
+  const a = Math.abs(v);
+  const f = (x: number, suf: string) =>
+    `${sign}$${x.toFixed(1).replace(/\.0$/, "")}${suf}`;
+  if (a >= 1e12) return f(a / 1e12, "T");
+  if (a >= 1e9) return f(a / 1e9, "B");
+  if (a >= 1e6) return f(a / 1e6, "M");
+  if (a >= 1e3) return f(a / 1e3, "K");
+  return `${sign}$${Math.round(a)}`;
 }
 
 const usd2 = new Intl.NumberFormat("en-US", {
@@ -126,6 +153,27 @@ export function relativeChange(
   return (curr - prior) / prior;
 }
 
+/**
+ * Point difference of two fractions (curr - prior); null if either is missing. Unlike relativeChange,
+ * a non-positive prior is fine — a pp delta is a plain subtraction, so margins that dip below zero
+ * still get a meaningful year-over-year change.
+ */
+export function pointChange(
+  curr: number | null | undefined,
+  prior: number | null | undefined,
+): number | null {
+  if (!isNum(curr) || !isNum(prior)) return null;
+  return curr - prior;
+}
+
+/** A fraction-of-1 point difference as pp: -0.010 -> "-1.0pp", 0.011 -> "+1.1pp"; null -> em dash. */
+export function formatPp(delta: number | null | undefined): string {
+  if (!isNum(delta)) return EM_DASH;
+  const pp = delta * 100;
+  const sign = pp > 0 ? "+" : "";
+  return `${sign}${pp.toFixed(1)}pp`;
+}
+
 function formatByUnit(value: number, unit: MetricUnit): string {
   switch (unit) {
     case "USD":
@@ -139,6 +187,9 @@ function formatByUnit(value: number, unit: MetricUnit): string {
     // themselves. Do NOT "fix" this to always sign percents.
     case "percent":
       return formatPercent(value);
+    case "percentage_points":
+      // Margin/ratio YoY delta: always signed with a ' pp' suffix (0.02 -> "+2.0pp").
+      return formatPp(value);
     case "ratio":
       return formatRatio(value);
   }
