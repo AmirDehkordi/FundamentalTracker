@@ -1,14 +1,13 @@
 import { MessageSquareText } from "lucide-react";
 
 import { AsyncBoundary } from "@/components/AsyncBoundary";
-import { Freshness } from "@/components/Freshness";
 import { NotReady } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCompanies, useValuation } from "@/api/queries";
 import { useSelection } from "@/state/selection";
 import { EM_DASH, formatFyChip, formatRatio, orDash } from "@/lib/format";
-import { displayName } from "@/lib/tickers";
+import { fullLegalName } from "@/lib/tickers";
 import type { TabKey } from "@/App";
 
 /** Universe-scoped header for the Compare tab — a per-company identity/P/E would be misleading there. */
@@ -48,7 +47,9 @@ export function TopBar({
                 {orDash(company?.ticker)}
               </span>
               <span className="truncate text-13 text-fg-2">
-                {company ? displayName(company.ticker, company.name) : EM_DASH}
+                {company
+                  ? fullLegalName(company.ticker, company.name)
+                  : EM_DASH}
               </span>
             </div>
 
@@ -86,12 +87,9 @@ export function TopBar({
         )}
 
         <div className="ml-auto flex items-center gap-4">
-          <div className="hidden sm:block">
-            <Freshness />
-          </div>
           <Button size="sm" onClick={onAskClick}>
             <MessageSquareText className="size-4" aria-hidden />
-            Ask SchonAmirAI
+            Ask SchonAI
           </Button>
         </div>
       </div>

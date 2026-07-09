@@ -5,8 +5,8 @@
 // WCAG >= 5.9:1 on surface-1. Keep in lockstep with colors.ticker in tailwind.config.ts and the skill.
 export const TICKER_COLORS: Record<string, string> = {
   NVDA: "#6E9BF0", // blue
-  MSFT: "#2DB6A6", // teal   (echoes the incremental-margin ΔRevenue series)
-  AAPL: "#A78BFA", // violet (echoes the incremental-margin ΔOperating-income series)
+  MSFT: "#2DB6A6", // teal
+  AAPL: "#A78BFA", // violet
   GOOGL: "#CE7CA6", // muted rose — toned down to sit in one family with the others
   ETN: "#D68A5A", // muted terracotta — warm, harmonises with the amber accent, distinct from it
 };
@@ -33,4 +33,22 @@ export function displayName(
   fallback: string | null | undefined,
 ): string {
   return DISPLAY_NAMES[ticker.toUpperCase()] ?? fallback ?? ticker;
+}
+
+// Full legal entity names, correctly cased. SEC's own company_tickers.json/XBRL entityName are
+// inconsistent ("MICROSOFT CORP", "EATON CORPORATION plc") so these are curated, not derived.
+const FULL_LEGAL_NAMES: Record<string, string> = {
+  MSFT: "Microsoft Corporation",
+  AAPL: "Apple Inc.",
+  GOOGL: "Alphabet Inc.",
+  NVDA: "NVIDIA Corporation",
+  ETN: "Eaton Corporation plc",
+};
+
+/** Full legal entity name for a ticker (case-insensitive); falls back to the raw name when unknown. */
+export function fullLegalName(
+  ticker: string,
+  fallback: string | null | undefined,
+): string {
+  return FULL_LEGAL_NAMES[ticker.toUpperCase()] ?? fallback ?? ticker;
 }

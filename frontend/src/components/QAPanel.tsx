@@ -58,9 +58,9 @@ export function QAPanel({
       >
         <div className="flex h-full flex-col">
           <SheetHeader className="space-y-1 border-b border-border p-4 text-left">
-            <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center justify-between gap-2">
               <SheetTitle className="text-sm font-semibold text-fg-1">
-                SchonAmirAI
+                SchonAI
               </SheetTitle>
               <div className="flex shrink-0 items-center gap-1">
                 <button
@@ -70,7 +70,7 @@ export function QAPanel({
                   className="focus-ring inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-fg-2 hover:bg-surface-2 disabled:opacity-40"
                 >
                   <SquarePen className="size-3.5" aria-hidden />
-                  New chat
+                  New Chat
                 </button>
                 <SheetClose
                   className="focus-ring inline-flex size-7 items-center justify-center rounded-md text-fg-2 hover:bg-surface-2"
