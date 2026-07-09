@@ -1,23 +1,22 @@
-import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useState } from "react";
 
-/** Cross-company comparison populates in the next chunk; skeleton placeholder for now. */
+import { ComparePanel } from "@/components/compare/ComparePanel";
+import { MetricSelect } from "@/components/compare/MetricSelect";
+import { DEFAULT_COMPARE_METRIC } from "@/lib/metrics";
+
+/** Cross-company comparison: pick a metric, compare across the universe on each company's own latest FY. */
 export function CompareTab() {
+  const [metric, setMetric] = useState(DEFAULT_COMPARE_METRIC);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <span className="text-xs uppercase tracking-wide text-fg-3">
           Metric
         </span>
-        <Skeleton className="h-8 w-40" />
+        <MetricSelect value={metric} onChange={setMetric} />
       </div>
-      <Card className="p-4">
-        <Skeleton className="h-3 w-40" />
-        <Skeleton className="mt-4 h-64 w-full" />
-      </Card>
-      <p className="text-xs text-fg-3">
-        Cross-company comparison populates in the next chunk.
-      </p>
+      <ComparePanel metric={metric} />
     </div>
   );
 }
