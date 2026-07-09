@@ -12,6 +12,7 @@ import type {
   PricesOut,
   RiskDiffOut,
   RiskDiffSummaryOut,
+  RiskDiffThemesOut,
   ValuationOut,
 } from "@/api/contracts";
 
@@ -120,6 +121,21 @@ export function useRiskDiffSummary(ticker: string | null) {
   });
 }
 
+/**
+ * Top-3 added / top-3 removed risk THEMES for the Item 1A diff — the card's primary content (not
+ * feature-flagged: unlike useRiskDiffSummary, there is no raw-paragraph fallback to hide behind, so
+ * this always fetches and the card shows a real error state on failure).
+ */
+export function useRiskDiffThemes(ticker: string | null) {
+  return useQuery<RiskDiffThemesOut, ApiError>({
+    queryKey: ["risk-diff-themes", ticker],
+    queryFn: () =>
+      apiFetch<RiskDiffThemesOut>(`/api/companies/${ticker}/risk-diff/themes`),
+    enabled: ticker != null,
+    retry: false,
+  });
+}
+
 /** Form 4 insider summary (90d / 365d windows) for the selected company. */
 export function useInsider(ticker: string | null) {
   return useQuery<InsiderSummaryOut, ApiError>({
@@ -142,7 +158,7 @@ export function useCompare(metric: string) {
 /**
  * Grounded natural-language Q&A. The endpoint always answers 200 (declines/refusals arrive as a
  * `declined` FinalAnswer), so `retry: false`: a real transport error won't recover on retry, and a
- * declined answer isn't an error. The server caps latency at ~30s, so no client-side timeout.
+ * declined answer isn't an error. The server caps latency at ~75s, so no client-side timeout.
  */
 export function useAsk() {
   return useMutation<FinalAnswer, ApiError, AskRequest>({
