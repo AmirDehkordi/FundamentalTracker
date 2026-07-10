@@ -49,17 +49,20 @@ fiscal_year: NEVER trust the entry's "fy" — it is the fiscal year of the REPOR
 comparatives inside newer 10-Ks carry the newer filing's fy (verified: AAPL revenue for the year ending
 2022-09-24 appears with fy=2022, 2023 AND 2024). min(fy) per period is also unreliable (filer-mislabeled
 fy in older filings; tag-history truncation). Rule: fiscal_year = calendar year of period_end — verified
-to match all five companies' own FY labels incl. NVDA's late-January year end. Guardrails at ingest: for
-anchor facts (end == the filing's reportDate) cross-check the label against the filing's fy; fiscal years
-must be strictly increasing by period_end; a per-ticker label offset exists in config for a future company
-whose convention differs. Violations log loudly; never load silently.
+to match all five companies' own FY labels incl. NVDA's late-January year end. Guardrail at ingest: a
+duplicate-FY warning flags two period_ends collapsing onto one label (fiscal-calendar change) and logs
+loudly; never load silently. (Anchor-fact fy cross-check, monotonic-FY validation, and a per-ticker
+label offset were considered and cut — a named cut in PLAN §14.)
 Dedupe on (concept, period_end): keep max(filed) — the restatement policy (latest-filed-wins) — and CAPTURE
 the replaced value into superseded_value/superseded_filed so restatements stay visible to the UI and agent.
 Splits: latest-filed-wins is split-consistent ONLY inside the newest filings' 3-year comparative window
 (NVDA FY2024 EPS 11.93 pre-split -> 1.19 restated, but FY2022 survives pre-split at 3.85, true ~0.39).
-Detect shares_diluted YoY ratio >= 1.5 -> inferred split factor; back-adjust older per-share facts
-(EPS / f, shares * f, source_tag += "|split-adjusted"). Persist accession (accn), filed, form, source_tag as
-provenance on every row.
+Do NOT back-adjust stored values (out-of-window back-adjustment is a named cut, PLAN §14); instead
+services suppress eps_diluted/shares_diluted YoY across a detected share-basis break (adjacent-FY
+shares_diluted ratio >= 1.5 either way) with reason "n.m. — share basis change (stock split)"
+(services/metrics.share_basis_break). Consequence to keep in mind: pre-window per-share LEVELS stay on
+their as-filed basis and are not comparable across the break. Persist accession (accn), filed, form,
+source_tag as provenance on every row.
 
 ## Fiscal-year alignment (a designed trap in this case study — surface it, never hide it)
 Expected year-ends: NVDA ~last Sunday of Jan · MSFT Jun 30 · AAPL last Sat of Sep · GOOGL Dec 31 ·

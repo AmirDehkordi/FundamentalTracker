@@ -1,157 +1,186 @@
 # Design writeup
 
-Companion to [`PLAN.md`](../PLAN.md) (the frozen pre-build plan) and the [README](../README.md)
-(quickstart, environment, models). This is the as-built account, organised around the brief's six
-questions: architecture and data model; source integration; where the LLM is and isn't; backend/UI/
-persistence choices; the two own metrics; tradeoffs and cuts.
+Companion to [`PLAN.md`](../PLAN.md), the frozen pre-build plan, and the [README](../README.md),
+which covers quickstart, configuration, and eval evidence. This is the as-built account, organised
+around the six questions the brief asks: architecture and data model; source integration; where the
+LLM is and is not; backend, UI, and persistence choices; the two custom metrics; and the tradeoffs
+behind what was deliberately cut.
 
 ## 1. Architecture and data model
 
-`ingestion/` is the only module that talks to the outside world — one shared EDGAR client (declared
-User-Agent, ≤8 req/s throttle, backoff retries) plus yfinance/stooq for prices — and every raw
-response is bronze-cached under `seed/bronze/`, so `--from-cache` replays the full pipeline offline.
-It writes Postgres 16 (`companies`, `fundamentals`, `prices`, `filings`, `filing_chunks`,
-`insider_transactions`); a committed `pg_dump` auto-restores via `docker-entrypoint-initdb.d`, so a
-cold clone serves real data with zero live API calls. `services/` reads the DB with pure, typed,
-unit-tested functions — no HTTP, no LLM — and `api/` (FastAPI) and `agent/` (the tool-calling loop)
-are both thin callers of those same functions, so a number computed for a chart and a number cited in
-an answer are, by construction, the same code path.
+All outbound traffic is confined to `ingestion/`: one shared EDGAR client (declared User-Agent,
+throttled below 8 requests per second, backoff retries) plus yfinance with a stooq fallback for
+prices. Every raw response is cached under `seed/bronze/`, so `--from-cache` replays the entire
+pipeline offline. Ingestion writes Postgres 16 (`companies`, `fundamentals`, `prices`, `filings`,
+`filing_chunks`, `insider_transactions`), and a committed `pg_dump` restores automatically through
+`docker-entrypoint-initdb.d` — a cold clone serves real data without a single live API call.
 
-Every fundamental row carries provenance: `accession`, `filed`, `form`, and `source_tag` (admitting
-`derived:…` for computed concepts and `|split-adjusted` for back-adjusted per-share facts).
-Restatements resolve latest-filed-wins, but the replaced value is kept in `superseded_value` /
-`superseded_filed` rather than discarded — so a UI tooltip or an agent citation can say "restated,
-originally 11.93" instead of silently overwriting history. `fiscal_year` is derived as
-`year(period_end)`, not trusted from EDGAR's own `fy`/`fp` fields, which describe the *report* a fact
-appeared in, not the fact's period — AAPL's FY2022 revenue turns up labelled fy=2022, 2023, *and* 2024
-across successive filings. Getting this wrong would silently mislabel three different fiscal years as
-the same one in any cross-company comparison.
+Above the database, `services/` holds pure, typed, unit-tested functions with no HTTP and no LLM.
+Both `api/` (FastAPI) and `agent/` (the tool-calling loop) are thin callers of those same functions,
+so a number plotted in a chart and a number cited in an answer share one code path by construction.
 
-## 2. Three-source integration and the trailing P/E cross-source join
+Two data-model decisions carry most of the weight. First, provenance: every fundamental row records
+`accession`, `filed`, `form`, and `source_tag`, the last admitting `derived:…` for computed
+concepts. Restatements resolve latest-filed-wins, but the replaced value is retained in
+`superseded_value` / `superseded_filed` rather than discarded — a tooltip or an agent citation can
+say "restated, originally 11.93" instead of silently rewriting history. That same mechanism is what
+keeps per-share facts split-consistent inside the newest filing's comparative window: NVDA's FY2024
+EPS surfaces as the post-split 1.19 with the pre-split 11.93 kept as the superseded value. Outside
+that window stored values keep their as-filed basis; a read-time guard suppresses per-share YoY
+across the resulting basis break (§6). Second, fiscal alignment: `fiscal_year` is derived as `year(period_end)` rather than
+trusted from EDGAR's own `fy`/`fp` fields, which describe the report a fact appeared in, not the
+period the fact covers. AAPL's FY2022 revenue surfaces tagged fy=2022, 2023, and 2024 across
+successive filings; trusting the tag would silently conflate three different fiscal years in any
+cross-company comparison.
 
-XBRL `companyfacts` supplies the structured backbone, resolved through a per-`(company, fiscal year)`
-tag-fallback chain — evaluated per year, not per company, because GOOGL switched from contract revenue
-to bare `Revenues` starting FY2025; a company-level "first tag with data" pick would silently drop its
-latest year. Two concepts are derived where a company doesn't tag them directly (gross profit for
-GOOGL/ETN; operating income for ETN post-FY2019), always provenance-tagged `derived:…`. EDGAR
-submissions supply the narrative (Items 1A/7 of the two most recent 10-Ks, extracted past a
-table-of-contents false match) and Form 4 insider transactions (P/S codes only, XSL-wrapper path
-stripped to reach the raw XML). Prices come from yfinance (split/dividend-adjusted), falling back to
-stooq behind the same interface.
+## 2. Three-source integration and the trailing-P/E cross-source join
 
-The cross-source join lives in `services/valuation.py`: trailing P/E is `close(max stored date) ÷
-eps_diluted(latest reported FY)`, joined ticker → CIK across the prices and fundamentals tables. The
-payload carries both bases explicitly — `price_as_of` and the EPS row's `(fiscal_year, period_end,
-accession)` — so the UI and any agent citation render "P/E 54.3× (FY2025 EPS, ended 27 Sep 2025 · price
-as of 3 Jul 2026)" rather than implying a single "current" number from two different clocks. EPS ≤ 0
-returns `None` with reason "n.m. — negative EPS", never a crash or a fabricated ratio.
+XBRL `companyfacts` supplies the structured backbone, resolved through a tag-fallback chain
+evaluated per `(company, fiscal year)` — per year, not per company, because GOOGL switched from
+contract revenue to bare `Revenues` starting FY2025, and a company-level "first tag with data" pick
+would silently drop its latest year. Where a company does not tag a concept directly, two are
+derived (gross profit for GOOGL and ETN; operating income for ETN after FY2019), always
+provenance-tagged `derived:…`. EDGAR submissions supply the narrative — Items 1A and 7 of the two
+most recent 10-Ks, extracted past a table-of-contents false match — and Form 4 insider transactions
+(purchase and sale codes only, with the XSL-wrapper path stripped to reach the raw XML). Prices come
+from yfinance, split- and dividend-adjusted, with stooq as a fallback behind the same interface.
 
-## 3. Where the LLM is / is not, and why
+The cross-source join lives in `services/valuation.py`. Trailing P/E is the latest stored close
+divided by diluted EPS of the latest reported fiscal year, joined ticker → CIK across the prices and
+fundamentals tables. The payload states both bases explicitly — `price_as_of` on one side, the EPS
+row's `(fiscal_year, period_end, accession)` on the other — so the UI and any agent citation render
+"P/E 54.3× (FY2025 EPS, ended 27 Sep 2025 · price as of 3 Jul 2026)" rather than implying a single
+"current" number drawn from two different clocks. Non-positive EPS returns `None` with the reason
+"n.m. — negative EPS"; never a crash, never a fabricated ratio.
 
-**Is:** routing a question to tools, composing cross-modal answers, summarising retrieved narrative
-and the risk-factor diff on demand, producing the final structured answer, and asking one clarifying
-question when a question is genuinely ambiguous. **Is not:** it never issues HTTP or SQL, never
-computes or transforms a number — every metric lives in `services/` and is unit-tested — and it is
-nowhere in the dashboard render path. Every figure a user sees, in a panel or an answer, originates
-from a deterministic tool result; the LLM only narrates results it was handed, never invents them.
+## 3. Where the LLM is, where it is not, and why
 
-The clearest example is the risk-factor diff. The Item 1A year-over-year diff itself is 100%
-deterministic — paragraphs matched by best `SequenceMatcher` ratio (position-based diffing degenerates
-once a filing reorders sections), yielding exact added/removed excerpts and counts, no LLM involved.
-The LLM's role is a deliberate, contained expansion: a 3-stage pipeline drafts candidate themes from
-*only those excerpts*, critiques them against a Python-computed coverage report, and finalizes the top
-themes — grounded structurally (the model never sees anything but the supplied excerpts) and enforced
-in Python (every citation index checked in range). Results are cached by filing-pair + content hash, so
-a repeat question costs zero LLM calls, and the endpoint returns 503 rather than 500 if no LLM is
-configured and there's no cache hit. This pattern — deterministic computation, LLM narrates on top,
-grounding enforced in code rather than trusted from the model — is the same shape as the rest of the
-agent: `FinalAnswer.kind` (`answer`/`clarification`/`decline`/`error`) is a real code-level dispatch,
-not a prompt convention, and a code-level check retries any answer containing digits with an empty
+The LLM routes a question to tools, composes cross-modal answers, summarises retrieved narrative and
+the risk-factor diff on demand, produces the final structured answer, and asks a single clarifying
+question when the question is genuinely ambiguous. It never issues HTTP or SQL, never computes or
+transforms a number — every metric lives in `services/` and is unit-tested — and it sits nowhere in
+the dashboard render path. Every figure a user sees, in a panel or in an answer, originates from a
+deterministic tool result; the model narrates what it was handed.
+
+The risk-factor diff is the clearest illustration. The year-over-year diff of Item 1A is fully
+deterministic: paragraphs are matched by best `SequenceMatcher` ratio, since position-based diffing
+degenerates once a filing reorders sections, and the output is exact added and removed excerpts with
+counts. The LLM's role is a contained expansion on top. A three-stage pipeline drafts candidate
+themes from those excerpts alone, critiques them against a coverage report computed in Python, and
+finalizes the top themes — grounded structurally, because the model never sees anything beyond the
+supplied excerpts, and enforced in code, because every citation index is checked in range. Results
+are cached by filing pair and content hash, so a repeated question costs no LLM calls, and the
+endpoint returns 503 rather than 500 when no LLM is configured and the cache misses.
+
+That shape — deterministic computation underneath, the LLM narrating on top, grounding enforced in
+code rather than trusted from the model — recurs throughout the agent. `FinalAnswer.kind`
+(`answer` / `clarification` / `decline` / `error`) is a real code-level dispatch, not a prompt
+convention, and a code-level guard retries any answer that contains digits but carries an empty
 citation list before it ever reaches the user.
 
-## 4. Backend/UI/persistence choices
+## 4. Backend, UI, and persistence choices
 
-Postgres over SQLite: the retrieval path (`ts_rank`/`ts_headline`/GIN-indexed `tsvector`) feeds the
-agent's citations directly, and `compose` + a committed `pg_dump` keep cold start at one command
-without giving up a real full-text engine. FastAPI over Flask/Django: typed Pydantic contracts,
-OpenAPI-generated TypeScript types, `/docs` for free, and the same request/response models the agent's
-tool schemas are generated from. React + Vite + TS over Streamlit/Dash: analyst-grade layout control
-for a dense dashboard, built to static files and served by FastAPI so the whole thing ships as one
-container. The agent loop is hand-rolled (~200 lines) rather than a framework (LangGraph is the
-author's production default, deliberately not used here) because the graded behaviour — routing,
-grounding, refusal — needs to be legible by reading one file, not traced through a framework's
-internals. The frontend follows a single audited dark theme (`.claude/skills/dashboard-design/`) with
-a review-blocking 4.5:1 contrast rule and tabular-nums on every numeral — one theme done properly beats
-two done halfway.
+**Postgres over SQLite.** The retrieval path — GIN-indexed `tsvector` with `ts_rank` and
+`ts_headline` — feeds the agent's citations directly, and Compose plus a committed `pg_dump` keeps
+cold start at one command without giving up a real full-text engine.
 
-## 5. The two own metrics
+**FastAPI over Flask or Django.** Typed Pydantic contracts, OpenAPI-generated TypeScript types, and
+`/docs` for free — and the agent's tool schemas are generated from the same request and response
+models the API serves.
 
-**FCF margin + FCF conversion** (FCF ÷ revenue; FCF ÷ net income) is an earnings-quality read:
-accrual earnings and cash earnings diverge through stock-based comp, working-capital swings, and capex
-cycles, and conversion near or above 1.0 says reported profit is actually turning into cash.
+**React + Vite + TypeScript over Streamlit or Dash.** A dense analyst dashboard needs real layout
+control. The frontend builds to static files served by FastAPI, so the whole application ships as
+one container. It follows a single audited dark theme (`.claude/skills/dashboard-design/`) with a
+review-blocking 4.5:1 contrast rule and tabular numerals on every figure — one theme done properly
+beats two done halfway.
 
-**Capex intensity + reinvestment ratio** (capex ÷ revenue; capex ÷ CFO) is a capital-intensity read,
-computed from concepts already ingested — zero new ingestion — and guarded None-with-reason on a
-non-positive denominator.
+**A hand-rolled agent loop (~200 lines) over a framework.** LangGraph is the author's production
+default, deliberately not used here: the graded behaviour — routing, grounding, refusal — should be
+legible by reading one file, not traced through a framework's internals.
 
-They're paired deliberately, not just two disconnected ratios: rising capex intensity is the mechanical
-driver of FCF-margin compression (capex is subtracted from CFO to get FCF), so reading the two Overview
-cards side by side answers the live question for this universe directly — is the AI-infrastructure
-build-out outrunning the cash the business generates? It separates the hyperscaler spenders (MSFT,
-GOOGL, both ~23% capex intensity in the latest FY) from the AI-demand receiver (NVDA, ~3%, where capex
-is R&D/office footprint rather than data-center build), the power-infrastructure beneficiary (ETN,
-~3%, a supplier into the build-out rather than a builder), and the asset-light abstainer (AAPL, ~3%).
-This pair replaced an earlier own metric, operating leverage (ΔOpInc ÷ ΔRevenue) — a valid trajectory
-metric, but less decision-relevant for this universe in the current capex cycle than a metric causally
-linked to the FCF-quality card next to it.
+## 5. The two custom metrics
+
+**FCF margin and FCF conversion** (FCF ÷ revenue; FCF ÷ net income) read earnings quality. Accrual
+and cash earnings diverge through stock-based compensation, working-capital swings, and capex
+cycles; conversion at or above 1.0 says reported profit is actually turning into cash.
+
+**Capex intensity and reinvestment ratio** (capex ÷ revenue; capex ÷ CFO) read capital intensity.
+Both are computed from concepts already ingested — no new ingestion — and guarded None-with-reason
+on a non-positive denominator.
+
+The pairing is deliberate rather than two disconnected ratios: rising capex intensity is the
+mechanical driver of FCF-margin compression, since capex is subtracted from CFO to get FCF. Read
+side by side on the Overview, the two cards answer the live question for this universe — is the
+AI-infrastructure build-out outrunning the cash the business generates? They separate the
+hyperscaler spenders (MSFT and GOOGL, both near 23% capex intensity in the latest fiscal year) from
+the AI-demand beneficiary (NVDA, ~3%, whose capex is R&D and office footprint rather than
+data-center build), the power-infrastructure supplier (ETN, ~3%, selling into the build-out rather
+than building), and the asset-light abstainer (AAPL, ~3%). This pair replaced an earlier candidate,
+operating leverage (ΔOpInc ÷ ΔRevenue) — a valid trajectory metric, but less decision-relevant in
+the current capex cycle than one causally linked to the FCF-quality card beside it.
 
 ## 6. Tradeoffs and deliberate cuts
 
-**Product surface, cut for scope discipline:** streaming answers (polish, not graded — the thinking
-indicator covers the 20–60s latency); auth/multi-user (internal single-analyst prototype); a light
-theme (one audited theme beats two half-audited ones); live/intraday prices (daily close is the
-valuation basis; freshness is labelled instead of implied).
+**Product surface, cut for scope discipline.** Streaming answers (polish, not graded; a thinking
+indicator covers the 20–60s latency). Auth and multi-user (an internal single-analyst prototype). A
+light theme (one audited theme beats two half-audited ones). Live intraday prices (daily close is
+the valuation basis; freshness is labelled rather than implied).
 
-**Data model, cut for honesty about what a prototype should promise:** Alembic migrations (schema
-ships once with a seed — `create_all` + `pg_dump` is honest for this scope, not a shortcut hiding
-production intent); point-in-time / as-first-reported history (a real quant shop would want
-lookahead-safe history; latest-filed-wins loses it, but the `superseded_*` columns and bronze cache
-keep the door open); quarterly fundamentals (annual answers every acceptance question; quarters double
-the fiscal-alignment complexity for no graded benefit).
+**Data model, cut for honesty about what a prototype should promise.** Alembic migrations — the
+schema ships once with a seed, and `create_all` plus `pg_dump` is honest for this scope rather than
+a shortcut concealing production intent. Point-in-time, as-first-reported history — a quant shop
+would want lookahead-safe history, and latest-filed-wins loses it, but the `superseded_*` columns
+and the bronze cache keep that door open. Quarterly fundamentals — annual data answers every
+acceptance question, and quarters double the fiscal-alignment complexity for no graded benefit.
 
-**Retrieval, cut after an explicit tradeoff:** pgvector/embeddings, in favour of Postgres full-text
-search — at a ~20-section corpus, ranking-quality differences between FTS and embeddings are noise, the
-agent can reformulate a failed query mid-loop (a luxury a human searcher doesn't get), and an embedding
-model would be a second, independent dependency behind an already-unknown review-time proxy. The
-honest failure mode (AND-semantics on a paraphrase) is mitigated, not eliminated — see the audit notes
-below.
+**Split back-adjustment outside the comparative window — a named cut with a shipped mitigation.**
+Latest-filed-wins keeps per-share facts split-consistent only for the fiscal years the newest 10-K
+restates as comparatives. Deterministically back-adjusting older facts (EPS ÷ split factor, tagged
+`|split-adjusted`) was planned and cut; stored values stay exactly as filed. The consequence,
+stated plainly: NVDA's stored EPS levels span three share bases across the full history (FY2019
+pre-all-splits; FY2020–22 on the 4:1 basis; FY2023 onward on the 10:1 basis). The shipped
+mitigation is a read-time guard: when adjacent fiscal years' diluted shares jump ≥ 1.5× in either
+direction, the `eps_diluted` and `shares_diluted` YoY cells are suppressed as "n.m. — share basis
+change (stock split)" — surfaced in the table with the same tooltip affordance as restatements — so
+a mixed-basis growth number is never rendered in a panel or handed to the agent. In-window figures
+(the default four-year view's levels, and trailing P/E, which only ever uses the latest fiscal
+year) are unaffected.
 
-**Scope, cut because the brief draws the line there:** forecasting/forward estimates (the refusal
-policy *is* the feature); tickers beyond the graded five (the universe is config-driven and would
-generalise, but the graded set stays fixed); Form 4 derivative transaction tables (non-derivative P/S
-codes only — the rest is noise for an insider-sentiment signal).
+**Retrieval, cut after an explicit tradeoff.** Postgres full-text search over pgvector and
+embeddings: at a corpus of roughly twenty sections, ranking-quality differences between FTS and
+embeddings are noise; the agent can reformulate a failed query mid-loop, a luxury a human searcher
+doesn't get; and an embedding model would add a second independent dependency behind an already
+unknown review-time proxy. The honest failure mode — AND semantics on a paraphrase — is mitigated,
+not eliminated; see the audit notes below.
+
+**Scope, cut because the brief draws the line there.** Forecasting and forward estimates — the
+refusal policy is the feature. Tickers beyond the graded five — the universe is config-driven and
+would generalise, but the graded set stays fixed. Form 4 derivative tables — non-derivative purchase
+and sale codes carry the insider-sentiment signal; the rest is noise.
 
 ## Notes from the pre-submission audit
 
-A few fixes landed after the initial build that are worth flagging explicitly rather than leaving
+A few fixes landed after the initial build and are worth stating explicitly rather than leaving
 buried in commit history:
 
-- **Filing search AND-semantics.** The flagship failure mode was the model passing whole sentences as
-  a search query, which get ANDed term-by-term — a paraphrase then returns zero hits. Fixed with a
+- **Filing-search AND semantics.** The flagship failure mode was the model passing whole sentences
+  as search queries, which get ANDed term by term, so a paraphrase returned zero hits. Fixed with a
   tool-contract change (2–5 keywords, never a sentence), a sanitizing retry ladder in
   `services/retrieval.py` (exact → relaxed OR → fuzzy substring on the rarest terms), and a one-shot
   corrective hint from the loop when a search comes back empty.
-- **Deadline-aware transport retry + fuller citation-completeness check.** The OpenAI client originally
-  had no retry on transient errors, so one rate limit or connection blip failed an entire request; a
-  single deadline-aware retry now covers `RateLimitError`/`APIConnectionError`/`APITimeoutError`/
-  `InternalServerError`. Separately, the citation-completeness retry only checked for `filing`
-  citations — it now also checks `fundamental` and `price`, closing the largest source of eval
-  failures under concurrent load (see the README's Q&A Eval Results for the before/after).
-- **Margin YoY in percentage points**, not relative percent change — a margin moving 40%→42% is
-  reported as `+2.0 pp`, never `+5%`, under a dedicated `percentage_points` unit.
-- **NVDA's capex tag discontinuity**: `PaymentsToAcquirePropertyPlantAndEquipment` stops after FY2012,
-  `PaymentsToAcquireProductiveAssets` picks up in FY2022; FY2013–FY2021 carry no annual capex tag at
-  all — a genuine reporting gap in EDGAR, not a fallback-chain miss.
-- **Insider 90d/365d windows being identical is correct, not a bug**, for companies (MSFT, GOOGL, ETN
-  in the committed seed) whose entire Form 4 history falls inside the 90-day window — both windows
-  aggregate the same rows by construction.
+- **Transport retry and a fuller citation guard.** The OpenAI client originally carried no retry on
+  transient errors, so one rate limit or connection blip failed an entire request; a single
+  deadline-aware retry now covers rate-limit, connection, timeout, and internal-server errors.
+  Separately, the citation-completeness retry checked only `filing` citations; it now also checks
+  `fundamental` and `price`, which alone accounted for five of the seven failures in the previously
+  committed eval run. Together the two fixes took the suite from 8/15 (brief 3/6) to 15/15
+  (brief 6/6); both runs were posted sequentially (the harness spaces requests with an
+  `EVALS_DELAY_S` pause) and both are preserved in the git history of `evals/last_run.md`.
+- **Margin deltas in percentage points**, never relative change: a margin moving from 40% to 42% is
+  reported as +2.0 pp, not +5%, under a dedicated `percentage_points` unit.
+- **NVDA's capex tag discontinuity.** `PaymentsToAcquirePropertyPlantAndEquipment` stops after
+  FY2012 and `PaymentsToAcquireProductiveAssets` picks up in FY2022; FY2013–FY2021 carry no annual
+  capex tag at all. That is a genuine reporting gap in EDGAR, not a fallback-chain miss.
+- **Identical insider 90-day and 365-day windows are correct, not a bug**, for companies whose
+  entire Form 4 history falls inside the 90-day window (MSFT, GOOGL, and ETN in the committed seed):
+  both windows aggregate the same rows by construction.
