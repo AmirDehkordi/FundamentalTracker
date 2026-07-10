@@ -232,7 +232,9 @@ def render_console(results: list[Result]) -> str:
     )
 
 
-def render_markdown(results: list[Result], model: str, base_url: str, timestamp: str) -> str:
+def render_markdown(
+    results: list[Result], model: str, base_url: str, timestamp: str, delay_s: float
+) -> str:
     passed, brief_passed, brief_total = _counts(results)
     head = "| ID | Question | Tools | T | Decl | Cite | Rgx | Lat(s) | Tokens | Result |"
     sep = "|----|----------|-------|---|------|------|-----|--------|--------|--------|"
@@ -243,6 +245,7 @@ def render_markdown(results: list[Result], model: str, base_url: str, timestamp:
     return (
         f"# Eval run — {timestamp}\n\n"
         f"- Model: `{model}`   Base URL: `{base_url}`\n"
+        f"- Questions posted sequentially over one connection ({delay_s:g}s pause between calls)\n"
         f"- Result: **{passed}/{len(results)}** passed · brief **{brief_passed}/{brief_total}**\n\n"
         + "\n".join([head, sep, *body_rows])
         + f"\n\n{_FOOTNOTE}\n\n"
@@ -282,7 +285,9 @@ def main() -> int:
 
     print(render_console(results))
     timestamp = datetime.now(UTC).isoformat(timespec="seconds")
-    _LAST_RUN.write_text(render_markdown(results, model, base_url, timestamp), encoding="utf-8")
+    _LAST_RUN.write_text(
+        render_markdown(results, model, base_url, timestamp, delay_s), encoding="utf-8"
+    )
     print(f"\nwrote {_LAST_RUN}")
 
     brief_failed = any(not r.overall for r in results if r.is_brief)
