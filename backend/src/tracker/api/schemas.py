@@ -228,33 +228,9 @@ class RiskDiffOut(APIModel):
     note: str | None = None
 
 
-class RiskSummaryItem(APIModel):
-    """One LLM-summarised risk change, grounded ONLY in the deterministic diff text."""
-
-    title: str  # <= 8 words
-    detail: str  # <= 25 words
-
-
-class RiskDiffSummaryOut(APIModel):
-    """On-demand LLM summary of the deterministic Item 1A diff (§8/§14): the top newly added/
-    heightened and top removed/reduced risks. The diff itself stays deterministic; only this
-    summarisation is the model's. `available=False` mirrors RiskDiffOut's degraded state (fewer than
-    two filed years) — `added`/`removed` are then empty and `note` explains."""
-
-    ticker: str
-    cik: int
-    item: str  # "1A"
-    latest: FilingRef | None
-    prior: FilingRef | None
-    new_risks: list[RiskSummaryItem]  # top 3 newly added / heightened
-    reduced_risks: list[RiskSummaryItem]  # top 3 removed / reduced
-    available: bool = True
-    note: str | None = None
-
-
 class RiskThemeItem(APIModel):
-    """One clustered risk theme grouping several diff excerpts, distinct from RiskSummaryItem (a
-    single individual risk item). Grounded ONLY in the deterministic diff text."""
+    """One clustered risk theme grouping several diff excerpts. Grounded ONLY in the deterministic
+    diff text."""
 
     title: str  # <= 6 words
     summary: str  # <= 30 words
@@ -262,10 +238,10 @@ class RiskThemeItem(APIModel):
 
 
 class RiskDiffThemesOut(APIModel):
-    """Top-3 thematic clusters of newly added/heightened and top-3 of removed/reduced risks — the
-    full diff grouped into themes, not individual top items (that is RiskDiffSummaryOut, a separate,
-    untouched vertical). `available=False` mirrors RiskDiffOut's degraded state; a diff with two
-    filed years but no net changes is `available=True` with both theme lists empty."""
+    """Top-3 thematic clusters of newly added/heightened and top-3 of removed/reduced risks
+    (§8/§14). The diff itself stays deterministic; only the clustering/summarisation is the model's.
+    `available=False` mirrors RiskDiffOut's degraded state; a diff with two filed years but no net
+    changes is `available=True` with both theme lists empty."""
 
     ticker: str
     cik: int

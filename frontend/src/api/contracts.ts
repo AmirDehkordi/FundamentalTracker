@@ -189,29 +189,8 @@ export interface RiskDiffOut {
   note?: string | null;
 }
 
-// A lazy LLM summary of the Item 1A risk-factor diff (GET /api/companies/{ticker}/risk-diff/summary).
-// The frontend fetches it defensively and HIDES the section on any non-200 (e.g. 503 when no LLM is
-// configured). Grounded only in the deterministic diff; degraded (no pair) -> available:false, empties.
-export interface RiskSummaryItem {
-  title: string; // <= 8 words
-  detail: string; // <= 25 words
-}
-
-export interface RiskDiffSummaryOut {
-  ticker: string;
-  cik: number;
-  item: string;
-  latest: FilingRef | null;
-  prior: FilingRef | null;
-  new_risks: RiskSummaryItem[];
-  reduced_risks: RiskSummaryItem[];
-  available: boolean;
-  note?: string | null;
-}
-
-// Top-3 thematic clusters of the Item 1A diff per side (GET .../risk-diff/themes) — distinct from
-// RiskDiffSummaryOut's top-3 INDIVIDUAL items, this groups the full diff into themes. Same
-// degraded/empty conventions as RiskDiffSummaryOut.
+// Top-3 thematic clusters of the Item 1A diff per side (GET .../risk-diff/themes). Grounded only in
+// the deterministic diff; degraded (no pair) -> available:false, empties.
 export interface RiskThemeItem {
   title: string; // <= 6 words
   summary: string; // <= 30 words

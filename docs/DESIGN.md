@@ -15,17 +15,19 @@ instead.
 lives in `services/` and is unit-tested), and is nowhere in the dashboard render path. Every figure a
 user sees, in a panel or an answer, originates from a deterministic tool result.
 
-### The risk-factor diff stays deterministic; the LLM only summarises it
+### The risk-factor diff stays deterministic; the LLM only clusters it into themes
 The Item 1A year-over-year diff is computed in `services/riskdiff.py` with no LLM: paragraphs are
 normalised (page furniture / sub-sentence fragments dropped, intra-year near-duplicates collapsed)
 and paired by best `SequenceMatcher` ratio, yielding added/removed excerpts and exact counts. The
-LLM's role is a **deliberate, contained expansion**: a new endpoint
-`GET /api/companies/{ticker}/risk-diff/summary` feeds *that deterministic diff's excerpts* to one
-grounded LLM call (`agent/riskdiff_summary.py`) asking for the top 3 newly added/heightened and top 3
-removed/reduced risks, each a short title + detail. It is grounded structurally (the model sees only
-the supplied excerpts), schema-validated with one retry, and cached in-process per `(cik, fy_pair)`.
-No LLM key configured → the endpoint returns 503, never 500. The diff numbers a user sees are still
-100% deterministic; only the prose summary is the model's.
+LLM's role is a **deliberate, contained expansion**: `GET /api/companies/{ticker}/risk-diff/themes`
+feeds *that deterministic diff's excerpts* to a 3-stage pipeline (`agent/riskdiff_themes.py`) — draft
+candidate themes, critique/ground them against a Python-computed coverage report, finalize the top 3
+added/heightened and top 3 removed/reduced themes. Grounded structurally (the model sees only the
+supplied excerpts) and enforced in Python (every citation index in range), then persisted to the
+`risk_themes` table (`services/risk_theme_cache.py`) keyed by the filing pair + a content hash, so a
+cache hit costs zero LLM calls. No LLM configured and no cache hit → the endpoint returns 503, never
+500. The diff numbers a user sees are still 100% deterministic; only the theme clustering is the
+model's.
 
 ## Filing search: keyword hardening + a retry ladder
 

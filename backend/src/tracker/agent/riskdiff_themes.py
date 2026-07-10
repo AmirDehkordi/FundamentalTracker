@@ -1,6 +1,5 @@
 """LLM theme-clustering of the DETERMINISTIC Item 1A diff into the top 3 added / top 3 removed
-risk THEMES (distinct from riskdiff_summary.py's top-3 individual items — that module is untouched
-and still live; this is a parallel, additive feature).
+risk THEMES.
 
 The diff stays deterministic (services/riskdiff.py, no LLM). This module runs a sequential 3-stage
 pipeline — draft candidate themes, critique/ground them, finalize the top few — so nothing gets
@@ -247,8 +246,7 @@ def _structured_call(
 ) -> _ThemeSet:
     """One structured call for `phase`; on schema failure retry ONCE with the error appended, else
     raise. Retries are local to this call — the caller's carried-forward conversation only ever sees
-    the final valid output, never the failed intermediate attempts (mirrors
-    riskdiff_summary._summarize / loop._final_call)."""
+    the final valid output, never the failed intermediate attempts (mirrors loop._final_call)."""
     local = messages
     for attempt in (1, 2):
         try:

@@ -11,7 +11,6 @@ import type {
   InsiderSummaryOut,
   PricesOut,
   RiskDiffOut,
-  RiskDiffSummaryOut,
   RiskDiffThemesOut,
   ValuationOut,
 } from "@/api/contracts";
@@ -101,30 +100,8 @@ export function useRiskDiff(ticker: string | null) {
 }
 
 /**
- * Off by default: the LLM risk-diff summary route does not exist on the frozen backend yet, and firing
- * a guaranteed-404 on every overview would add console noise. Flip VITE_RISK_SUMMARY=1 once the backend
- * ships GET /api/companies/{ticker}/risk-diff/summary; the card then renders it (and still hides on a
- * 503/no-LLM), so the frontend is ready with no further change.
- */
-export const RISK_SUMMARY_ENABLED = import.meta.env.VITE_RISK_SUMMARY === "1";
-
-/** Lazy LLM summary of the Item 1A risk-diff. Fails once and hides the section (retry: false). */
-export function useRiskDiffSummary(ticker: string | null) {
-  return useQuery<RiskDiffSummaryOut, ApiError>({
-    queryKey: ["risk-diff-summary", ticker],
-    queryFn: () =>
-      apiFetch<RiskDiffSummaryOut>(
-        `/api/companies/${ticker}/risk-diff/summary`,
-      ),
-    enabled: RISK_SUMMARY_ENABLED && ticker != null,
-    retry: false,
-  });
-}
-
-/**
- * Top-3 added / top-3 removed risk THEMES for the Item 1A diff — the card's primary content (not
- * feature-flagged: unlike useRiskDiffSummary, there is no raw-paragraph fallback to hide behind, so
- * this always fetches and the card shows a real error state on failure).
+ * Top-3 added / top-3 removed risk THEMES for the Item 1A diff — the card's primary content. Always
+ * fetches (not feature-flagged) and the card shows a real error state on failure.
  */
 export function useRiskDiffThemes(ticker: string | null) {
   return useQuery<RiskDiffThemesOut, ApiError>({

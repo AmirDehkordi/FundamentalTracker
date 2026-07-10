@@ -1,6 +1,5 @@
 """Risk-theme clustering pipeline (agent/riskdiff_themes.py) — the scripted FakeOpenAI client only,
-never a real LLM. Distinct from test_risk_diff_summary.py's top-3-item module, which is untouched.
-"""
+never a real LLM."""
 
 from __future__ import annotations
 

@@ -89,23 +89,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/companies/{ticker}/risk-diff/summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** LLM summary of the Item 1A diff */
-        get: operations["company_risk_diff_summary_api_companies__ticker__risk_diff_summary_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/companies/{ticker}/risk-diff/themes": {
         parameters: {
             query?: never;
@@ -603,39 +586,11 @@ export interface components {
             note?: string | null;
         };
         /**
-         * RiskDiffSummaryOut
-         * @description On-demand LLM summary of the deterministic Item 1A diff (§8/§14): the top newly added/
-         *     heightened and top removed/reduced risks. The diff itself stays deterministic; only this
-         *     summarisation is the model's. `available=False` mirrors RiskDiffOut's degraded state (fewer than
-         *     two filed years) — `added`/`removed` are then empty and `note` explains.
-         */
-        RiskDiffSummaryOut: {
-            /** Ticker */
-            ticker: string;
-            /** Cik */
-            cik: number;
-            /** Item */
-            item: string;
-            latest: components["schemas"]["FilingRef"] | null;
-            prior: components["schemas"]["FilingRef"] | null;
-            /** New Risks */
-            new_risks: components["schemas"]["RiskSummaryItem"][];
-            /** Reduced Risks */
-            reduced_risks: components["schemas"]["RiskSummaryItem"][];
-            /**
-             * Available
-             * @default true
-             */
-            available: boolean;
-            /** Note */
-            note?: string | null;
-        };
-        /**
          * RiskDiffThemesOut
-         * @description Top-3 thematic clusters of newly added/heightened and top-3 of removed/reduced risks — the
-         *     full diff grouped into themes, not individual top items (that is RiskDiffSummaryOut, a separate,
-         *     untouched vertical). `available=False` mirrors RiskDiffOut's degraded state; a diff with two
-         *     filed years but no net changes is `available=True` with both theme lists empty.
+         * @description Top-3 thematic clusters of newly added/heightened and top-3 of removed/reduced risks
+         *     (§8/§14). The diff itself stays deterministic; only the clustering/summarisation is the model's.
+         *     `available=False` mirrors RiskDiffOut's degraded state; a diff with two filed years but no net
+         *     changes is `available=True` with both theme lists empty.
          */
         RiskDiffThemesOut: {
             /** Ticker */
@@ -659,19 +614,9 @@ export interface components {
             note?: string | null;
         };
         /**
-         * RiskSummaryItem
-         * @description One LLM-summarised risk change, grounded ONLY in the deterministic diff text.
-         */
-        RiskSummaryItem: {
-            /** Title */
-            title: string;
-            /** Detail */
-            detail: string;
-        };
-        /**
          * RiskThemeItem
-         * @description One clustered risk theme grouping several diff excerpts, distinct from RiskSummaryItem (a
-         *     single individual risk item). Grounded ONLY in the deterministic diff text.
+         * @description One clustered risk theme grouping several diff excerpts. Grounded ONLY in the deterministic
+         *     diff text.
          */
         RiskThemeItem: {
             /** Title */
@@ -916,55 +861,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    company_risk_diff_summary_api_companies__ticker__risk_diff_summary_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                ticker: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RiskDiffSummaryOut"];
-                };
-            };
-            /** @description Unknown ticker */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-            /** @description No LLM configured / summary unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorOut"];
                 };
             };
         };
