@@ -13,6 +13,7 @@ from fixtures.fake_llm import FakeOpenAI, final_response
 from tracker.agent import riskdiff_themes
 from tracker.api.app import create_app
 from tracker.api.deps import optional_llm_client
+from tracker.config import get_settings
 from tracker.db.models import FilingChunk
 from tracker.db.session import get_session
 from tracker.services import risk_theme_cache as cache
@@ -23,6 +24,21 @@ NVDA_CIK = 1045810
 LATEST = "0001045810-2025-10K"
 PRIOR = "0001045810-2024-10K"
 _MODEL = "fake-model"
+
+
+@pytest.fixture(autouse=True)
+def _llm_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The endpoint tests below hit the real route, which reads get_settings().llm_model — without
+    this, they only pass on a machine with a local .env (mirrors test_ask.py's fixture)."""
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    monkeypatch.setenv("LLM_BASE_URL", "http://fake")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", _MODEL)
+    monkeypatch.setenv("SEC_USER_AGENT", "Test test@test.co (t)")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
 
 _ADDED_1 = (
     "New and expanded export control regulations may restrict sales of our most advanced chips "
