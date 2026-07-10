@@ -75,7 +75,10 @@ export function AssistantMessage({ answer }: { answer: FinalAnswer }) {
           {label}
         </div>
         <Markdown>{shown}</Markdown>
-        {reason && body && <p className="mt-1.5 text-xs text-fg-3">{reason}</p>}
+        {/* The model often echoes the policy line as both answer and reason — one copy is enough. */}
+        {reason && body && reason !== body && (
+          <p className="mt-1.5 text-xs text-fg-3">{reason}</p>
+        )}
         <Followups items={followups} />
         <CitationPills citations={answer.citations} />
         <TraceAccordion trace={answer.trace} />
