@@ -16,9 +16,18 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from typing import Any, Literal
 
-from openai import OpenAI, OpenAIError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    OpenAI,
+    OpenAIError,
+    RateLimitError,
+)
+from openai.types.chat import ChatCompletion
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
@@ -32,6 +41,13 @@ _MAX_TURNS = 5
 _SUMMARY_MAX = 120
 # Tools whose output is 10-K narrative — an answer built on them must carry a `filing` citation.
 _FILING_TOOLS = frozenset({"search_filings", "diff_risk_factors"})
+# Tools whose output is a reported-fundamentals row set — an answer built on them must carry a
+# `fundamental` citation.
+_FUNDAMENTAL_TOOLS = frozenset({"get_fundamentals", "compare_companies"})
+# ~= llm._CALL_TIMEOUT_S: skip a transient-error retry if less than one more call's worth of
+# wall-clock remains before the deadline (kept as its own constant, not a cross-module private
+# import, since the two are conceptually related but independently tunable).
+_RETRY_HEADROOM_S = 20.0
 
 
 class LlmAnswer(BaseModel):
@@ -74,6 +90,45 @@ _RESPONSE_FORMAT: dict[str, Any] = {
 }
 
 
+def _retryable(exc: OpenAIError) -> bool:
+    """Transient provider/network errors are worth one retry; a malformed request or bad auth will
+    never succeed on retry, so they (and any other OpenAIError) are not retried.
+    `InternalServerError` (5xx) is included alongside the transport errors — an overloaded proxy
+    under load is at least as likely to 5xx as to drop the connection."""
+    return isinstance(
+        exc, (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError)
+    )
+
+
+def _has_retry_headroom(deadline: float | None) -> bool:
+    """True if there's roughly one more call's worth of wall-clock left before the deadline."""
+    return deadline is None or time.monotonic() + _RETRY_HEADROOM_S < deadline
+
+
+def _with_retry(
+    call: Callable[[], ChatCompletion],
+    deadline: float | None,
+    *,
+    phase: str,
+    allow_retry: bool = True,
+) -> ChatCompletion | None:
+    """Run `call()`, retrying ONCE on a transient `OpenAIError` iff `allow_retry` and there's
+    deadline headroom left. Never raises; returns None if both attempts fail or the error isn't
+    retryable, leaving the caller to degrade (matches `run()`'s no-raise contract)."""
+    try:
+        return call()
+    except OpenAIError as exc:
+        if not (allow_retry and _retryable(exc) and _has_retry_headroom(deadline)):
+            logger.warning("%s call failed: %s", phase, exc)
+            return None
+        logger.warning("%s call failed, retrying once: %s", phase, exc)
+        try:
+            return call()
+        except OpenAIError as exc2:
+            logger.warning("%s call retry failed: %s", phase, exc2)
+            return None
+
+
 def run(
     question: str,
     history: list[Message],
@@ -91,22 +146,26 @@ def run(
     messages = _initial_messages(question, history)
     trace: list[ToolTrace] = []
     filing_grounded = False  # a filing tool actually RETURNED citable 10-K text (not merely called)
+    fundamentals_grounded = False  # get_fundamentals/compare_companies RETURNED a real metric value
+    valuation_grounded = False  # get_valuation RETURNED a real, priced result
     last_search_zero = False  # the most recent search_filings returned 0 hits
     search_hint_used = False  # the one-shot "0 hits — retry" nudge has fired
 
     for _turn in range(_MAX_TURNS):
         if deadline is not None and time.monotonic() >= deadline:
             break  # soft deadline: stop routing and answer with what we have
-        try:
-            resp = llm.call_tools(
+        resp = _with_retry(
+            lambda: llm.call_tools(
                 client,
                 model=model,
                 messages=messages,
                 tools=tools.openai_tools_schema(),
                 usage=usage,
-            )
-        except OpenAIError as exc:
-            logger.warning("tool turn failed: %s", exc)
+            ),
+            deadline,
+            phase="tools",
+        )
+        if resp is None:
             return _declined("The analysis backend is temporarily unavailable.", trace)
 
         msg = _message(resp)  # a content-filter/proxy error can return empty choices
@@ -151,12 +210,26 @@ def run(
             )
             if _filing_has_content(tc.function.name, result):
                 filing_grounded = True
+            if _fundamentals_has_content(tc.function.name, result):
+                fundamentals_grounded = True
+            if _valuation_has_content(tc.function.name, result):
+                valuation_grounded = True
             if tc.function.name == "search_filings" and result.get("ok"):
                 # Reflects the LAST search of the turn; a [hits, then 0-hits] turn may trigger one
                 # harmless nudge. Bounded by _MAX_TURNS + the one-shot search_hint_used gate.
                 last_search_zero = not result.get("count", 0)
 
-    return _finalize(client, model, messages, trace, deadline, usage, filing_grounded)
+    return _finalize(
+        client,
+        model,
+        messages,
+        trace,
+        deadline,
+        usage,
+        filing_grounded,
+        fundamentals_grounded,
+        valuation_grounded,
+    )
 
 
 def _filing_has_content(tool: str, result: dict[str, Any]) -> bool:
@@ -172,6 +245,31 @@ def _filing_has_content(tool: str, result: dict[str, Any]) -> bool:
     return False
 
 
+def _fundamentals_has_content(tool: str, result: dict[str, Any]) -> bool:
+    """True only if a fundamentals-bearing tool RETURNED at least one real (non-None) metric value,
+    so demanding a `fundamental` citation is honest. `get_fundamentals` can return `ok=True,
+    rows=[]` for a known ticker with no ingested facts, and `compare_companies` always returns one
+    row per universe company even when every cell is None-with-reason — bare `rows` truthiness would
+    false-positive on both, so this checks the actual values."""
+    if tool not in _FUNDAMENTAL_TOOLS or not result.get("ok"):
+        return False
+    rows = result.get("rows") or []
+    if tool == "get_fundamentals":
+        return any(
+            m.get("value") is not None for row in rows for m in row.get("metrics", {}).values()
+        )
+    if tool == "compare_companies":
+        return any(row.get("value", {}).get("value") is not None for row in rows)
+    return False
+
+
+def _valuation_has_content(tool: str, result: dict[str, Any]) -> bool:
+    """True only if get_valuation returned a real, priced result. `close`/`price_as_of` are always
+    present when `ok` is True, even if `trailing_pe`/`trailing_ps` are None-with-reason (n.m.) —
+    so `ok=True` alone is an honest signal that there's a real price to cite."""
+    return tool == "get_valuation" and bool(result.get("ok"))
+
+
 def _finalize(
     client: OpenAI,
     model: str,
@@ -180,30 +278,60 @@ def _finalize(
     deadline: float | None,
     usage: llm.TokenUsage | None,
     filing_grounded: bool,
+    fundamentals_grounded: bool,
+    valuation_grounded: bool,
 ) -> FinalAnswer:
+    # Proactively nudge every citation type actually grounded this turn — cuts how often the retry
+    # below is even needed, which matters for compound questions' wall-clock sensitivity.
     instruction = "Now write the final answer as JSON matching the schema. Cite every figure."
-    if filing_grounded:  # nudge the filing citation on the turn we already pay for
+    if filing_grounded:
         instruction += ' You used filing text, so include a citation with source_type "filing".'
+    if fundamentals_grounded:
+        instruction += (
+            ' You used reported fundamentals, so include a citation with source_type "fundamental".'
+        )
+    if valuation_grounded:
+        instruction += ' You used a market price, so include a citation with source_type "price".'
     ask = messages + [{"role": "user", "content": instruction}]
     answer = _final_call(client, model, ask, deadline, usage)
     if answer is None:
         return _declined("Internal formatting error.", trace)
 
     # Citation grounding is enforced only heuristically (a digit in answer_md with no citation, or
-    # citable filing text used but never cited as source_type "filing"); we don't cross-check that a
-    # cited accession actually came from a tool. `filing_grounded` is set only when a filing tool
-    # RETURNED text, so a no-hit search never demands a citation. Only real ANSWERS need citations —
-    # a clarification/decline may carry digits ("one of the 5") without a citation. Retry once.
+    # citable tool output used but never cited under the matching source_type); we don't cross-check
+    # that a cited accession actually came from a tool. Each `*_grounded` flag is set only when the
+    # matching tool RETURNED real content, so an unknown ticker or empty result never demands a
+    # citation. Only real ANSWERS need citations — a clarification/decline may carry digits ("one of
+    # the 5") without a citation. One retry, broadened to cover every gap found at once (rather than
+    # a second retry round), given compound questions' sensitivity to the wall-clock budget.
     kind = _resolve_kind(answer)
     stated_uncited = not answer.citations and any(c.isdigit() for c in answer.answer_md)
     has_filing_cite = any(c.source_type == "filing" for c in answer.citations)
+    has_fundamental_cite = any(c.source_type == "fundamental" for c in answer.citations)
+    has_price_cite = any(c.source_type == "price" for c in answer.citations)
     missing_filing = filing_grounded and not has_filing_cite
-    if kind == "answer" and (stated_uncited or missing_filing) and not _past(deadline):
-        reqs = []
-        if stated_uncited:
-            reqs.append("cite every figure")
-        if missing_filing:
-            reqs.append('add a source_type "filing" citation (url + item) for the filing text used')
+    missing_fundamental = fundamentals_grounded and not has_fundamental_cite
+    missing_price = valuation_grounded and not has_price_cite
+    cite_reqs = (
+        (stated_uncited, "cite every figure"),
+        (
+            missing_filing,
+            'add a source_type "filing" citation (url + item) for the filing text used',
+        ),
+        (
+            missing_fundamental,
+            'add a source_type "fundamental" citation for the reported figures used',
+        ),
+        (
+            missing_price,
+            'add a source_type "price" citation (as-of date) for the market price used',
+        ),
+    )
+    reqs = [msg for cond, msg in cite_reqs if cond]
+    # Headroom-gated like the transport retry (not just "not yet past"): the citation retry kicks
+    # off a fresh _final_call, itself eligible for its own transport/schema retries, so a bare
+    # not-past check could start a multi-call cascade with almost no time left.
+    if kind == "answer" and reqs and _has_retry_headroom(deadline):
         retry = ask + [
             {
                 "role": "user",
@@ -234,18 +362,22 @@ def _final_call(
     deadline: float | None,
     usage: llm.TokenUsage | None,
 ) -> LlmAnswer | None:
-    """One structured call; on schema failure retry ONCE with the error appended, else None."""
+    """One structured call; on schema failure retry ONCE with the error appended, else None.
+    A transient transport error also gets one retry, but ONLY on the first schema attempt — capping
+    the worst case at 3 real LLM calls here (this composes with `_finalize`'s own citation-retry,
+    which invokes `_final_call` a second time, so uncapped composition could otherwise reach 6 calls
+    in the finalize phase alone)."""
     for attempt in (1, 2):
-        try:
-            resp = llm.call_final(
-                client,
-                model=model,
-                messages=messages,
-                response_format=_RESPONSE_FORMAT,
-                usage=usage,
+        # `msgs=messages` binds the CURRENT value at definition time — `messages` is reassigned
+        # below on a schema-validation retry, and a late-binding closure here would silently pick
+        # up the wrong (later) value on the next loop iteration.
+        def _call_final(msgs: list[dict[str, Any]] = messages) -> ChatCompletion:
+            return llm.call_final(
+                client, model=model, messages=msgs, response_format=_RESPONSE_FORMAT, usage=usage
             )
-        except OpenAIError as exc:
-            logger.warning("final call failed: %s", exc)
+
+        resp = _with_retry(_call_final, deadline, phase="final", allow_retry=(attempt == 1))
+        if resp is None:
             return None
         msg = _message(resp)  # empty choices -> content None -> falls into the retry/decline path
         content = msg.content if msg is not None else None

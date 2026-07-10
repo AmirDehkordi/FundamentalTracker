@@ -13,14 +13,19 @@ from sqlalchemy.orm import Session
 
 from fixtures.fake_llm import (
     FakeOpenAI,
+    bad_request_error,
+    connection_error,
     custom_tool_call,
     empty_choices,
     final_response,
+    internal_server_error,
     malformed_tool_call,
+    rate_limit_error,
     raw_final,
     raw_tool_call,
     refusal_final,
     stop_turn,
+    timeout_error,
     tool_call,
     tool_response,
 )
@@ -43,6 +48,11 @@ _FILING_CIT = {
     "url": "https://www.sec.gov/Archives/edgar/data/320193/x.htm",
     "detail": "Item 1A risk factors, FY2025",
 }
+_PRICE_CIT = {
+    "source_type": "price",
+    "ticker": "AAPL",
+    "detail": "Close $195.00 as of 2026-07-08",
+}
 
 
 def _run(
@@ -56,8 +66,12 @@ def test_routes_to_single_tool(db_session: Session) -> None:
         [
             tool_response(tool_call("c1", "get_valuation", {"ticker": "AAPL"})),
             stop_turn(),
+            # get_valuation was used, so a price citation is required too (else it retries).
             final_response(
-                {"answer_md": "AAPL trailing P/E is 25.6 for FY2025.", "citations": [_CIT]}
+                {
+                    "answer_md": "AAPL trailing P/E is 25.6 for FY2025.",
+                    "citations": [_CIT, _PRICE_CIT],
+                }
             ),
         ]
     )
@@ -76,9 +90,13 @@ def test_two_tool_cross_modal_trace_in_order(db_session: Session) -> None:
                 tool_call("c2", "search_filings", {"ticker": "AAPL", "query": "supply"}),
             ),
             stop_turn(),
-            # search_filings was used, so the answer must carry a filing citation (else it retries).
+            # get_valuation + search_filings were used, so the answer must carry both a price and a
+            # filing citation (else it retries).
             final_response(
-                {"answer_md": "P/E 25.6; risks cite supply.", "citations": [_CIT, _FILING_CIT]}
+                {
+                    "answer_md": "P/E 25.6; risks cite supply.",
+                    "citations": [_CIT, _PRICE_CIT, _FILING_CIT],
+                }
             ),
         ]
     )
@@ -396,3 +414,180 @@ def test_citation_retry_failure_keeps_original(db_session: Session) -> None:
     answer = _run(db_session, client)
     assert answer.answer_md == "Revenue was $300B."
     assert answer.citations == []
+
+
+# --- transient transport-error retry -----------------------------------------------------------
+
+
+def test_retryable_error_on_tool_turn_retries_and_succeeds(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            rate_limit_error(),
+            stop_turn(),
+            final_response({"answer_md": "No figures here."}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is False
+    assert len(client.calls) == 3  # failed attempt + successful retry + final
+
+
+def test_retryable_error_on_tool_turn_still_fails_after_retry_declines(db_session: Session) -> None:
+    client = FakeOpenAI([rate_limit_error(), connection_error()])
+    answer = _run(db_session, client)
+    assert answer.declined is True
+    assert answer.decline_reason == "The analysis backend is temporarily unavailable."
+    assert len(client.calls) == 2
+
+
+def test_non_retryable_error_on_tool_turn_declines_without_retry(db_session: Session) -> None:
+    client = FakeOpenAI([bad_request_error()])
+    answer = _run(db_session, client)
+    assert answer.declined is True
+    assert answer.decline_reason == "The analysis backend is temporarily unavailable."
+    assert len(client.calls) == 1  # no retry attempted for a non-retryable error
+
+
+def test_internal_server_error_on_tool_turn_retries(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            internal_server_error(),
+            stop_turn(),
+            final_response({"answer_md": "No figures here."}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is False
+    assert len(client.calls) == 3
+
+
+def test_retryable_error_on_final_turn_retries_and_succeeds(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            stop_turn(),
+            timeout_error(),
+            final_response({"answer_md": "No figures here."}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is False
+    assert len(client.calls) == 3
+
+
+def test_retry_skipped_when_deadline_has_no_headroom(db_session: Session) -> None:
+    client = FakeOpenAI([rate_limit_error()])
+    answer = loop.run(
+        "q", [], session=db_session, client=client, model=_MODEL, deadline=time.monotonic() + 0.01
+    )
+    assert answer.declined is True
+    assert answer.decline_reason == "The analysis backend is temporarily unavailable."
+    assert len(client.calls) == 1  # headroom too thin to gamble on a retry
+
+
+def test_transport_retry_not_attempted_on_second_schema_attempt(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            stop_turn(),
+            raw_final("not json at all"),  # schema attempt 1 fails validation
+            rate_limit_error(),  # schema attempt 2's transport call fails -> NOT retried
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is True
+    assert answer.decline_reason == "Internal formatting error."
+    assert len(client.calls) == 3  # tool turn + schema attempt 1 + schema attempt 2 (no 4th call)
+
+
+# --- fundamental/price citation-completeness retry ----------------------------------------------
+
+
+def test_fundamentals_tool_with_data_retries_for_missing_fundamental_citation(
+    db_session: Session,
+) -> None:
+    client = FakeOpenAI(
+        [
+            tool_response(tool_call("c1", "get_fundamentals", {"ticker": "AAPL"})),
+            stop_turn(),
+            final_response({"answer_md": "Revenue was $300B.", "citations": [_FILING_CIT]}),
+            final_response({"answer_md": "Revenue was $300B.", "citations": [_FILING_CIT, _CIT]}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert any(c.source_type == "fundamental" for c in answer.citations)  # the retry supplied it
+    assert len(client.calls) == 4
+
+
+def test_valuation_tool_retries_for_missing_price_citation(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            tool_response(tool_call("c1", "get_valuation", {"ticker": "AAPL"})),
+            stop_turn(),
+            final_response({"answer_md": "P/E is 25.6.", "citations": [_CIT]}),
+            final_response({"answer_md": "P/E is 25.6.", "citations": [_CIT, _PRICE_CIT]}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert any(c.source_type == "price" for c in answer.citations)  # the retry supplied it
+    assert len(client.calls) == 4
+
+
+def test_unknown_ticker_fundamentals_does_not_demand_citation(db_session: Session) -> None:
+    # ZZZZ isn't a tracked ticker, so get_fundamentals returns ok=False -> no citation is demanded
+    # even though the final answer carries no citations.
+    client = FakeOpenAI(
+        [
+            tool_response(tool_call("c1", "get_fundamentals", {"ticker": "ZZZZ"})),
+            stop_turn(),
+            final_response({"answer_md": "ZZZZ is not tracked.", "citations": []}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is False
+    assert answer.citations == []
+    assert len(client.calls) == 3  # no citation-enforcement retry fired
+
+
+def test_compare_companies_tool_retries_for_missing_fundamental_citation(
+    db_session: Session,
+) -> None:
+    # compare_companies against the real seed returns real (non-None) revenue values across the
+    # universe -> a missing fundamental citation must trigger the same retry as get_fundamentals.
+    client = FakeOpenAI(
+        [
+            tool_response(tool_call("c1", "compare_companies", {"metric": "revenue"})),
+            stop_turn(),
+            final_response({"answer_md": "NVDA leads on revenue.", "citations": [_FILING_CIT]}),
+            final_response(
+                {"answer_md": "NVDA leads on revenue.", "citations": [_FILING_CIT, _CIT]}
+            ),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert any(c.source_type == "fundamental" for c in answer.citations)  # the retry supplied it
+    assert len(client.calls) == 4
+
+
+def test_fundamentals_has_content_true_for_compare_rows_with_a_real_value() -> None:
+    result = {
+        "ok": True,
+        "metric": "revenue",
+        "rows": [
+            {"ticker": "AAPL", "value": {"value": None, "unit": "usd", "reason": "n.m."}},
+            {"ticker": "MSFT", "value": {"value": 281724000000.0, "unit": "usd"}},
+        ],
+    }
+    assert loop._fundamentals_has_content("compare_companies", result) is True
+
+
+def test_fundamentals_has_content_ignores_all_none_compare_rows() -> None:
+    # Every row's value is None-with-reason (e.g. an undefined metric for every company) -> no real
+    # content to cite, mirroring _filing_has_content's honesty rule for compare_companies.
+    result = {
+        "ok": True,
+        "metric": "eps_diluted",
+        "rows": [
+            {"ticker": "AAPL", "value": {"value": None, "unit": "usd", "reason": "n.m."}},
+            {"ticker": "MSFT", "value": {"value": None, "unit": "usd", "reason": "n.m."}},
+        ],
+    }
+    assert loop._fundamentals_has_content("compare_companies", result) is False

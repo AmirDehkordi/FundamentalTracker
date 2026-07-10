@@ -21,6 +21,7 @@ _CIT = {
     "accession": "0000320193-2025-10K",
     "detail": "Trailing P/E 25.6, FY2025",
 }
+_PRICE_CIT = {"source_type": "price", "ticker": "AAPL", "detail": "Close $195.00 as of 2026-07-08"}
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +50,13 @@ def test_ask_happy_path(db_session: Session) -> None:
         [
             tool_response(tool_call("c1", "get_valuation", {"ticker": "AAPL"})),
             stop_turn(),
-            final_response({"answer_md": "AAPL P/E is 25.6 for FY2025.", "citations": [_CIT]}),
+            # get_valuation was used, so a price citation is required too (else it retries).
+            final_response(
+                {
+                    "answer_md": "AAPL P/E is 25.6 for FY2025.",
+                    "citations": [_CIT, _PRICE_CIT],
+                }
+            ),
         ]
     )
     resp = _client(db_session, fake).post("/api/ask", json={"question": "AAPL P/E?"})
@@ -67,7 +74,13 @@ def test_ask_sets_token_headers(db_session: Session) -> None:
         [
             tool_response(tool_call("c1", "get_valuation", {"ticker": "AAPL"})),
             stop_turn(),
-            final_response({"answer_md": "AAPL P/E is 25.6 for FY2025.", "citations": [_CIT]}),
+            # get_valuation was used, so a price citation is required too (else it retries).
+            final_response(
+                {
+                    "answer_md": "AAPL P/E is 25.6 for FY2025.",
+                    "citations": [_CIT, _PRICE_CIT],
+                }
+            ),
         ]
     )
     resp = _client(db_session, fake).post("/api/ask", json={"question": "AAPL P/E?"})

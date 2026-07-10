@@ -14,6 +14,43 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    BadRequestError,
+    InternalServerError,
+    RateLimitError,
+)
+
+_FAKE_REQUEST = httpx.Request("POST", "http://fake/v1/chat/completions")
+
+
+def rate_limit_error() -> RateLimitError:
+    return RateLimitError(
+        "rate limited", response=httpx.Response(429, request=_FAKE_REQUEST), body=None
+    )
+
+
+def connection_error() -> APIConnectionError:
+    return APIConnectionError(request=_FAKE_REQUEST)
+
+
+def timeout_error() -> APITimeoutError:
+    return APITimeoutError(request=_FAKE_REQUEST)
+
+
+def internal_server_error() -> InternalServerError:
+    return InternalServerError(
+        "internal error", response=httpx.Response(500, request=_FAKE_REQUEST), body=None
+    )
+
+
+def bad_request_error() -> BadRequestError:
+    return BadRequestError(
+        "bad request", response=httpx.Response(400, request=_FAKE_REQUEST), body=None
+    )
+
 
 def tool_call(call_id: str, name: str, args: dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(
