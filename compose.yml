@@ -1,5 +1,19 @@
-# Dev database only. The app service (multi-stage build) lands in P10.
 services:
+  app:
+    build: .
+    environment:
+      # In-network hostname; the .env value (localhost:5433) is for host-side `make run` only.
+      DATABASE_URL: postgresql+psycopg://tracker:tracker@db:5432/tracker
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
+      SEC_USER_AGENT: ${SEC_USER_AGENT}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
   db:
     image: postgres:16-alpine
     environment:
