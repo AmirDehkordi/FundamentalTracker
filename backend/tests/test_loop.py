@@ -545,3 +545,49 @@ def test_unknown_ticker_fundamentals_does_not_demand_citation(db_session: Sessio
     assert answer.declined is False
     assert answer.citations == []
     assert len(client.calls) == 3  # no citation-enforcement retry fired
+
+
+def test_compare_companies_tool_retries_for_missing_fundamental_citation(
+    db_session: Session,
+) -> None:
+    # compare_companies against the real seed returns real (non-None) revenue values across the
+    # universe -> a missing fundamental citation must trigger the same retry as get_fundamentals.
+    client = FakeOpenAI(
+        [
+            tool_response(tool_call("c1", "compare_companies", {"metric": "revenue"})),
+            stop_turn(),
+            final_response({"answer_md": "NVDA leads on revenue.", "citations": [_FILING_CIT]}),
+            final_response(
+                {"answer_md": "NVDA leads on revenue.", "citations": [_FILING_CIT, _CIT]}
+            ),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert any(c.source_type == "fundamental" for c in answer.citations)  # the retry supplied it
+    assert len(client.calls) == 4
+
+
+def test_fundamentals_has_content_true_for_compare_rows_with_a_real_value() -> None:
+    result = {
+        "ok": True,
+        "metric": "revenue",
+        "rows": [
+            {"ticker": "AAPL", "value": {"value": None, "unit": "usd", "reason": "n.m."}},
+            {"ticker": "MSFT", "value": {"value": 281724000000.0, "unit": "usd"}},
+        ],
+    }
+    assert loop._fundamentals_has_content("compare_companies", result) is True
+
+
+def test_fundamentals_has_content_ignores_all_none_compare_rows() -> None:
+    # Every row's value is None-with-reason (e.g. an undefined metric for every company) -> no real
+    # content to cite, mirroring _filing_has_content's honesty rule for compare_companies.
+    result = {
+        "ok": True,
+        "metric": "eps_diluted",
+        "rows": [
+            {"ticker": "AAPL", "value": {"value": None, "unit": "usd", "reason": "n.m."}},
+            {"ticker": "MSFT", "value": {"value": None, "unit": "usd", "reason": "n.m."}},
+        ],
+    }
+    assert loop._fundamentals_has_content("compare_companies", result) is False

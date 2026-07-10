@@ -328,7 +328,10 @@ def _finalize(
         ),
     )
     reqs = [msg for cond, msg in cite_reqs if cond]
-    if kind == "answer" and reqs and not _past(deadline):
+    # Headroom-gated like the transport retry (not just "not yet past"): the citation retry kicks
+    # off a fresh _final_call, itself eligible for its own transport/schema retries, so a bare
+    # not-past check could start a multi-call cascade with almost no time left.
+    if kind == "answer" and reqs and _has_retry_headroom(deadline):
         retry = ask + [
             {
                 "role": "user",
