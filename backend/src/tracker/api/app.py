@@ -8,6 +8,7 @@ only assembles the app: CORS + router registration + (in the packaged container)
 
 from __future__ import annotations
 
+import logging
 from importlib import metadata
 from pathlib import Path
 
@@ -51,6 +52,10 @@ def _mount_frontend(app: FastAPI, dist: Path) -> None:
 
 
 def create_app() -> FastAPI:
+    # Uvicorn only configures its own loggers; without a root handler the app's INFO lines
+    # (llm_call token/latency accounting, ask latency) are silently dropped in the container.
+    # basicConfig is a no-op when a root handler already exists, so tests/embedders are unaffected.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     app = FastAPI(title="Fundamentals Tracker API", version=_app_version())
     app.add_middleware(
         CORSMiddleware,
