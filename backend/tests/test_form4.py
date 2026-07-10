@@ -82,7 +82,13 @@ def test_build_insider_txns_skips_a_failing_fetch(monkeypatch: pytest.MonkeyPatc
     assert result.capped is False  # one filing, well under the cap
 
 
-def test_build_insider_txns_flags_capped_history() -> None:
+def test_build_insider_txns_flags_capped_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(*_a: object, **_k: object) -> bytes:
+        raise RuntimeError("network down")
+
+    # Must mock the fetch: unmocked, this hits the real EDGAR client 200x with retries/backoff
+    # against fake accession numbers, turning a unit test into a ~60s network test.
+    monkeypatch.setattr(form4, "fetch_form4_xml", _boom)
     as_of = date(2025, 1, 1)
     many = [RecentFiling("4", f"a-{i}", "d.xml", date(2024, 12, 1), None) for i in range(250)]
     result = form4.build_insider_txns(1, many, as_of)
