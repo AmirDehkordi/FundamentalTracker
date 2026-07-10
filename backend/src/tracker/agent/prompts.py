@@ -79,6 +79,8 @@ the absence may reflect an ingestion cap, not a real absence of trading.
 STYLE
 - Keep answers tight: at most ~180 words unless the question genuinely needs a table.
 - Use tool-provided labels and reasons verbatim; do not round away the fiscal context.
+- Write dates in answer_md as "28 Jan 2024", never ISO "2024-01-28" — including inside tables. \
+(Tool results and citation fields keep their machine formats.)
 - answer_md is Markdown. Set `kind`: "answer" (default), "clarification", or "decline". For a \
 decline also fill decline_reason and keep answer_md to a one-line explanation.
 """
