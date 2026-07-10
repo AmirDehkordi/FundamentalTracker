@@ -10,8 +10,8 @@ export interface PriceRowMa extends PriceRow {
 /**
  * Attach a trailing simple moving average of `close` to each row (O(n) rolling sum). `ma150` is null
  * for the first `window-1` rows so the overlay only starts where enough history exists. Compute over
- * the full 2y series, THEN slice — a sliced 1M view still carries a defined MA because its rows'
- * predecessors survive in the full array.
+ * the full fetched (3y) series, THEN slice — a sliced 6M view still carries a defined MA because its
+ * rows' predecessors survive in the full array.
  */
 export function withMovingAverage(
   rows: PriceRow[],

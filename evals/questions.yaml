@@ -1,5 +1,5 @@
 # Eval set for POST /api/ask. Each case is sent independently (empty history). Cases brief-1..brief-6
-# are the case-study brief's six questions (verbatim) and must ALL pass; extra-7..extra-14 are added
+# are the case-study brief's six questions (verbatim) and must ALL pass; extra-7..extra-15 are added
 # coverage. Expectations are asserted only when present (see evals/run.py for semantics):
 #   tools_any_of            >= 1 of these tool names appears in the response trace
 #   tools_all_of            every one of these tool names appears in the trace

@@ -73,9 +73,11 @@ function SignedStat({
   );
 }
 
-/** Two windows collapse to one when the 365d aggregates equal the 90d ones (all activity is recent). */
+/** Two windows collapse to one when the 365d aggregates equal the 90d ones AND there's actually
+ *  activity to show (all activity is recent) — two empty windows are not "recent activity". */
 function windowsEqual(a: InsiderWindow, b: InsiderWindow): boolean {
   return (
+    (a.buy_count > 0 || a.sell_count > 0) &&
     a.buy_count === b.buy_count &&
     a.sell_count === b.sell_count &&
     a.net_shares === b.net_shares &&

@@ -88,7 +88,7 @@ Grid: horizontal only, --border, dashed 3-3. Axes: 12px text-3, no axis lines, r
 surface-2, border, full precision + date. Every chart labels its series in a legend (charts/ChartLegend).
 Price chart: 1.5px accent line + 8% area fill; dashed 150-day MA (text-2); a low-opacity volume sub-panel in
 the bottom ~20% on a HIDDEN companion axis; a last-price callout dot+value; range segmented control
-[1M 6M 1Y MAX] (no 2Y — identical to MAX with 2y of data); 10-K dates = ReferenceLine (--border, dashed) +
+[6M 1Y 2Y]; 10-K dates = ReferenceLine (--border, dashed) +
 tiny "10-K" label (text-3), nudged inward when near the y-axis. Compare: grouped/single bars, per-ticker
 fixed colours, value labels 12px, each bar footnoted with its own FY; a sort toggle orders both the level
 chart and its YoY companion identically. Bars radius 2.
