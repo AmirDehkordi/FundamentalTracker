@@ -85,9 +85,10 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      # Type-check, lint, format-check, and bundle against the committed src/api/types.ts — no backend needed.
+      # Type-check, lint, format-check, vitest, and bundle against the committed src/api/types.ts — no backend needed.
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
+      - run: npm run test
       - run: npm run build

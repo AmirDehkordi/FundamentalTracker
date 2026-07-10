@@ -58,8 +58,8 @@ verify: ## Backend format+lint+types+coverage gates, then the frontend typecheck
 web-setup: ## Install frontend deps from the lockfile (needs Node 20)
 	cd frontend && npm ci
 
-web-verify: ## Frontend: typecheck + lint + format check + production build (needs Node 20)
-	cd frontend && npm run typecheck && npm run lint && npm run format:check && npm run build
+web-verify: ## Frontend: typecheck + lint + format check + vitest + production build (needs Node 20)
+	cd frontend && npm run typecheck && npm run lint && npm run format:check && npm run test && npm run build
 
 evals: ## Run the eval question set against a running /api/ask (needs a live LLM key)
 	EVALS_MODEL_LABEL=$$(uv run python -c "from tracker.config import get_settings; print(get_settings().llm_model)") \
