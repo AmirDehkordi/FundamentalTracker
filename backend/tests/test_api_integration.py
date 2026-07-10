@@ -7,7 +7,11 @@ gate, which the SQLite suite carries. Values match mini_seed (AAPL/NVDA, FY2023-
 
 from __future__ import annotations
 
+import gzip
+import re
 from collections.abc import Iterator
+from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +21,48 @@ from tracker.api.app import create_app
 from tracker.db.session import get_session
 
 pytestmark = pytest.mark.integration
+
+_SEED_DUMP = Path(__file__).parents[2] / "seed" / "init" / "01_seed.sql.gz"
+
+
+def _seed_copy_rows(sql: str, table: str) -> list[dict[str, str]]:
+    """Rows of one table's COPY block in a pg_dump, as {column: raw-text} dicts."""
+    match = re.search(
+        rf"^COPY public\.{table} \(([^)]+)\) FROM stdin;\n(.*?)^\\\.$",
+        sql,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match is not None, f"no COPY block for {table} in the seed dump"
+    columns = [c.strip() for c in match.group(1).split(",")]
+    return [
+        dict(zip(columns, line.split("\t"), strict=True))
+        for line in match.group(2).splitlines()
+        if line
+    ]
+
+
+def test_committed_seed_pins_acceptance_values() -> None:
+    """The two planning-time acceptance values, asserted against the committed seed itself:
+    the GOOGL FY2025 tag switch to bare `Revenues` and the NVDA split restatement with the
+    pre-split figure retained (PLAN.md §10 chunk 2)."""
+    sql = gzip.decompress(_SEED_DUMP.read_bytes()).decode()
+    rows = _seed_copy_rows(sql, "fundamentals")
+
+    googl_rev = next(
+        r
+        for r in rows
+        if r["cik"] == "1652044" and r["concept"] == "revenue" and r["fiscal_year"] == "2025"
+    )
+    assert Decimal(googl_rev["value"]) == Decimal("402836000000")
+    assert googl_rev["source_tag"] == "us-gaap:Revenues"
+
+    nvda_eps = next(
+        r
+        for r in rows
+        if r["cik"] == "1045810" and r["concept"] == "eps_diluted" and r["fiscal_year"] == "2024"
+    )
+    assert Decimal(nvda_eps["value"]) == Decimal("1.19")
+    assert Decimal(nvda_eps["superseded_value"]) == Decimal("11.93")
 
 
 def _client(session: Session) -> TestClient:
