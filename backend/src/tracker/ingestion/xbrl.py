@@ -298,8 +298,8 @@ def _run_guardrails(resolved: dict[str, dict[date, FundamentalFact]]) -> None:
     for prev, cur in zip(shares, shares[1:], strict=False):
         if prev.value and cur.value / prev.value >= _SPLIT_RATIO:
             logger.warning(
-                "shares_diluted jumped ~%.1fx (FY%d->FY%d): likely split; per-share "
-                "back-adjustment deferred to a later phase",
+                "shares_diluted jumped ~%.1fx (FY%d->FY%d): likely split; stored values stay "
+                "as filed — services suppress per-share YoY across this boundary at read time",
                 cur.value / prev.value,
                 prev.fiscal_year,
                 cur.fiscal_year,
