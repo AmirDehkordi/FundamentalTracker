@@ -62,7 +62,8 @@ web-verify: ## Frontend: typecheck + lint + format check + production build (nee
 	cd frontend && npm run typecheck && npm run lint && npm run format:check && npm run build
 
 evals: ## Run the eval question set against a running /api/ask (needs a live LLM key)
-	uv run python -m evals.run
+	EVALS_MODEL_LABEL=$$(uv run python -c "from tracker.config import get_settings; print(get_settings().llm_model)") \
+		uv run python -m evals.run
 
 cache-risk-themes: ## Precompute + cache Item 1A risk themes for the tracked universe (needs a live LLM key)
 	uv run python scripts/build_risk_themes.py
