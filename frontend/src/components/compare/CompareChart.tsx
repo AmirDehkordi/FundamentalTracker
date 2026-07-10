@@ -111,7 +111,10 @@ export function CompareChart({
 
   return (
     <ResponsiveContainer width="100%" height={260}>
-      <BarChart data={data} margin={CHART_MARGIN}>
+      {/* Extra top headroom vs CHART_MARGIN: the 12px value labels sit above the tallest bar and
+          clip at the plot edge otherwise (both compare charts share this margin, keeping the
+          paired-chart baselines aligned). */}
+      <BarChart data={data} margin={{ ...CHART_MARGIN, top: 18 }}>
         <CartesianGrid {...gridProps} />
         <XAxis
           dataKey="ticker"
