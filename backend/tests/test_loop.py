@@ -48,6 +48,11 @@ _FILING_CIT = {
     "url": "https://www.sec.gov/Archives/edgar/data/320193/x.htm",
     "detail": "Item 1A risk factors, FY2025",
 }
+_PRICE_CIT = {
+    "source_type": "price",
+    "ticker": "AAPL",
+    "detail": "Close $195.00 as of 2026-07-08",
+}
 
 
 def _run(
@@ -61,8 +66,12 @@ def test_routes_to_single_tool(db_session: Session) -> None:
         [
             tool_response(tool_call("c1", "get_valuation", {"ticker": "AAPL"})),
             stop_turn(),
+            # get_valuation was used, so a price citation is required too (else it retries).
             final_response(
-                {"answer_md": "AAPL trailing P/E is 25.6 for FY2025.", "citations": [_CIT]}
+                {
+                    "answer_md": "AAPL trailing P/E is 25.6 for FY2025.",
+                    "citations": [_CIT, _PRICE_CIT],
+                }
             ),
         ]
     )
@@ -81,9 +90,13 @@ def test_two_tool_cross_modal_trace_in_order(db_session: Session) -> None:
                 tool_call("c2", "search_filings", {"ticker": "AAPL", "query": "supply"}),
             ),
             stop_turn(),
-            # search_filings was used, so the answer must carry a filing citation (else it retries).
+            # get_valuation + search_filings were used, so the answer must carry both a price and a
+            # filing citation (else it retries).
             final_response(
-                {"answer_md": "P/E 25.6; risks cite supply.", "citations": [_CIT, _FILING_CIT]}
+                {
+                    "answer_md": "P/E 25.6; risks cite supply.",
+                    "citations": [_CIT, _PRICE_CIT, _FILING_CIT],
+                }
             ),
         ]
     )
@@ -483,3 +496,52 @@ def test_transport_retry_not_attempted_on_second_schema_attempt(db_session: Sess
     assert answer.declined is True
     assert answer.decline_reason == "Internal formatting error."
     assert len(client.calls) == 3  # tool turn + schema attempt 1 + schema attempt 2 (no 4th call)
+
+
+# --- fundamental/price citation-completeness retry ----------------------------------------------
+
+
+def test_fundamentals_tool_with_data_retries_for_missing_fundamental_citation(
+    db_session: Session,
+) -> None:
+    client = FakeOpenAI(
+        [
+            tool_response(tool_call("c1", "get_fundamentals", {"ticker": "AAPL"})),
+            stop_turn(),
+            final_response({"answer_md": "Revenue was $300B.", "citations": [_FILING_CIT]}),
+            final_response({"answer_md": "Revenue was $300B.", "citations": [_FILING_CIT, _CIT]}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert any(c.source_type == "fundamental" for c in answer.citations)  # the retry supplied it
+    assert len(client.calls) == 4
+
+
+def test_valuation_tool_retries_for_missing_price_citation(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            tool_response(tool_call("c1", "get_valuation", {"ticker": "AAPL"})),
+            stop_turn(),
+            final_response({"answer_md": "P/E is 25.6.", "citations": [_CIT]}),
+            final_response({"answer_md": "P/E is 25.6.", "citations": [_CIT, _PRICE_CIT]}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert any(c.source_type == "price" for c in answer.citations)  # the retry supplied it
+    assert len(client.calls) == 4
+
+
+def test_unknown_ticker_fundamentals_does_not_demand_citation(db_session: Session) -> None:
+    # ZZZZ isn't a tracked ticker, so get_fundamentals returns ok=False -> no citation is demanded
+    # even though the final answer carries no citations.
+    client = FakeOpenAI(
+        [
+            tool_response(tool_call("c1", "get_fundamentals", {"ticker": "ZZZZ"})),
+            stop_turn(),
+            final_response({"answer_md": "ZZZZ is not tracked.", "citations": []}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is False
+    assert answer.citations == []
+    assert len(client.calls) == 3  # no citation-enforcement retry fired
