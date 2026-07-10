@@ -16,9 +16,18 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from typing import Any, Literal
 
-from openai import OpenAI, OpenAIError
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    OpenAI,
+    OpenAIError,
+    RateLimitError,
+)
+from openai.types.chat import ChatCompletion
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
@@ -32,6 +41,10 @@ _MAX_TURNS = 5
 _SUMMARY_MAX = 120
 # Tools whose output is 10-K narrative — an answer built on them must carry a `filing` citation.
 _FILING_TOOLS = frozenset({"search_filings", "diff_risk_factors"})
+# ~= llm._CALL_TIMEOUT_S: skip a transient-error retry if less than one more call's worth of
+# wall-clock remains before the deadline (kept as its own constant, not a cross-module private
+# import, since the two are conceptually related but independently tunable).
+_RETRY_HEADROOM_S = 20.0
 
 
 class LlmAnswer(BaseModel):
@@ -74,6 +87,45 @@ _RESPONSE_FORMAT: dict[str, Any] = {
 }
 
 
+def _retryable(exc: OpenAIError) -> bool:
+    """Transient provider/network errors are worth one retry; a malformed request or bad auth will
+    never succeed on retry, so they (and any other OpenAIError) are not retried.
+    `InternalServerError` (5xx) is included alongside the transport errors — an overloaded proxy
+    under load is at least as likely to 5xx as to drop the connection."""
+    return isinstance(
+        exc, (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError)
+    )
+
+
+def _has_retry_headroom(deadline: float | None) -> bool:
+    """True if there's roughly one more call's worth of wall-clock left before the deadline."""
+    return deadline is None or time.monotonic() + _RETRY_HEADROOM_S < deadline
+
+
+def _with_retry(
+    call: Callable[[], ChatCompletion],
+    deadline: float | None,
+    *,
+    phase: str,
+    allow_retry: bool = True,
+) -> ChatCompletion | None:
+    """Run `call()`, retrying ONCE on a transient `OpenAIError` iff `allow_retry` and there's
+    deadline headroom left. Never raises; returns None if both attempts fail or the error isn't
+    retryable, leaving the caller to degrade (matches `run()`'s no-raise contract)."""
+    try:
+        return call()
+    except OpenAIError as exc:
+        if not (allow_retry and _retryable(exc) and _has_retry_headroom(deadline)):
+            logger.warning("%s call failed: %s", phase, exc)
+            return None
+        logger.warning("%s call failed, retrying once: %s", phase, exc)
+        try:
+            return call()
+        except OpenAIError as exc2:
+            logger.warning("%s call retry failed: %s", phase, exc2)
+            return None
+
+
 def run(
     question: str,
     history: list[Message],
@@ -97,16 +149,18 @@ def run(
     for _turn in range(_MAX_TURNS):
         if deadline is not None and time.monotonic() >= deadline:
             break  # soft deadline: stop routing and answer with what we have
-        try:
-            resp = llm.call_tools(
+        resp = _with_retry(
+            lambda: llm.call_tools(
                 client,
                 model=model,
                 messages=messages,
                 tools=tools.openai_tools_schema(),
                 usage=usage,
-            )
-        except OpenAIError as exc:
-            logger.warning("tool turn failed: %s", exc)
+            ),
+            deadline,
+            phase="tools",
+        )
+        if resp is None:
             return _declined("The analysis backend is temporarily unavailable.", trace)
 
         msg = _message(resp)  # a content-filter/proxy error can return empty choices
@@ -234,18 +288,22 @@ def _final_call(
     deadline: float | None,
     usage: llm.TokenUsage | None,
 ) -> LlmAnswer | None:
-    """One structured call; on schema failure retry ONCE with the error appended, else None."""
+    """One structured call; on schema failure retry ONCE with the error appended, else None.
+    A transient transport error also gets one retry, but ONLY on the first schema attempt — capping
+    the worst case at 3 real LLM calls here (this composes with `_finalize`'s own citation-retry,
+    which invokes `_final_call` a second time, so uncapped composition could otherwise reach 6 calls
+    in the finalize phase alone)."""
     for attempt in (1, 2):
-        try:
-            resp = llm.call_final(
-                client,
-                model=model,
-                messages=messages,
-                response_format=_RESPONSE_FORMAT,
-                usage=usage,
+        # `msgs=messages` binds the CURRENT value at definition time — `messages` is reassigned
+        # below on a schema-validation retry, and a late-binding closure here would silently pick
+        # up the wrong (later) value on the next loop iteration.
+        def _call_final(msgs: list[dict[str, Any]] = messages) -> ChatCompletion:
+            return llm.call_final(
+                client, model=model, messages=msgs, response_format=_RESPONSE_FORMAT, usage=usage
             )
-        except OpenAIError as exc:
-            logger.warning("final call failed: %s", exc)
+
+        resp = _with_retry(_call_final, deadline, phase="final", allow_retry=(attempt == 1))
+        if resp is None:
             return None
         msg = _message(resp)  # empty choices -> content None -> falls into the retry/decline path
         content = msg.content if msg is not None else None

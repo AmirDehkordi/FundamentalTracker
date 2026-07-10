@@ -13,14 +13,19 @@ from sqlalchemy.orm import Session
 
 from fixtures.fake_llm import (
     FakeOpenAI,
+    bad_request_error,
+    connection_error,
     custom_tool_call,
     empty_choices,
     final_response,
+    internal_server_error,
     malformed_tool_call,
+    rate_limit_error,
     raw_final,
     raw_tool_call,
     refusal_final,
     stop_turn,
+    timeout_error,
     tool_call,
     tool_response,
 )
@@ -396,3 +401,85 @@ def test_citation_retry_failure_keeps_original(db_session: Session) -> None:
     answer = _run(db_session, client)
     assert answer.answer_md == "Revenue was $300B."
     assert answer.citations == []
+
+
+# --- transient transport-error retry -----------------------------------------------------------
+
+
+def test_retryable_error_on_tool_turn_retries_and_succeeds(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            rate_limit_error(),
+            stop_turn(),
+            final_response({"answer_md": "No figures here."}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is False
+    assert len(client.calls) == 3  # failed attempt + successful retry + final
+
+
+def test_retryable_error_on_tool_turn_still_fails_after_retry_declines(db_session: Session) -> None:
+    client = FakeOpenAI([rate_limit_error(), connection_error()])
+    answer = _run(db_session, client)
+    assert answer.declined is True
+    assert answer.decline_reason == "The analysis backend is temporarily unavailable."
+    assert len(client.calls) == 2
+
+
+def test_non_retryable_error_on_tool_turn_declines_without_retry(db_session: Session) -> None:
+    client = FakeOpenAI([bad_request_error()])
+    answer = _run(db_session, client)
+    assert answer.declined is True
+    assert answer.decline_reason == "The analysis backend is temporarily unavailable."
+    assert len(client.calls) == 1  # no retry attempted for a non-retryable error
+
+
+def test_internal_server_error_on_tool_turn_retries(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            internal_server_error(),
+            stop_turn(),
+            final_response({"answer_md": "No figures here."}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is False
+    assert len(client.calls) == 3
+
+
+def test_retryable_error_on_final_turn_retries_and_succeeds(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            stop_turn(),
+            timeout_error(),
+            final_response({"answer_md": "No figures here."}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is False
+    assert len(client.calls) == 3
+
+
+def test_retry_skipped_when_deadline_has_no_headroom(db_session: Session) -> None:
+    client = FakeOpenAI([rate_limit_error()])
+    answer = loop.run(
+        "q", [], session=db_session, client=client, model=_MODEL, deadline=time.monotonic() + 0.01
+    )
+    assert answer.declined is True
+    assert answer.decline_reason == "The analysis backend is temporarily unavailable."
+    assert len(client.calls) == 1  # headroom too thin to gamble on a retry
+
+
+def test_transport_retry_not_attempted_on_second_schema_attempt(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            stop_turn(),
+            raw_final("not json at all"),  # schema attempt 1 fails validation
+            rate_limit_error(),  # schema attempt 2's transport call fails -> NOT retried
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is True
+    assert answer.decline_reason == "Internal formatting error."
+    assert len(client.calls) == 3  # tool turn + schema attempt 1 + schema attempt 2 (no 4th call)

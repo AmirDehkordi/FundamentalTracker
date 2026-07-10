@@ -24,8 +24,9 @@ from tracker.config import get_settings
 
 logger = logging.getLogger("tracker.agent.llm")
 
-# Bound a single call so a hung provider can't outlive the endpoint's 30s guard by minutes (the SDK
-# default is ~600s). max_retries=0: the loop degrades to a declined answer on error itself.
+# Bound a single call so a hung provider can't outlive the endpoint's wall-clock guard by minutes
+# (the SDK default is ~600s). max_retries=0: loop.py owns retry policy itself (deadline-aware, and
+# only for transient error types) rather than a blind SDK-level retry.
 _CALL_TIMEOUT_S = 20.0
 
 
