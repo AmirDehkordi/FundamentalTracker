@@ -111,11 +111,13 @@ on a non-positive denominator.
 The pairing is deliberate rather than two disconnected ratios: rising capex intensity is the
 mechanical driver of FCF-margin compression, since capex is subtracted from CFO to get FCF. Read
 side by side on the Overview, the two cards answer the live question for this universe — is the
-AI-infrastructure build-out outrunning the cash the business generates? They separate the
-hyperscaler spenders (MSFT and GOOGL, both near 23% capex intensity in the latest fiscal year) from
-the AI-demand beneficiary (NVDA, ~3%, whose capex is R&D and office footprint rather than
-data-center build), the power-infrastructure supplier (ETN, ~3%, selling into the build-out rather
-than building), and the asset-light abstainer (AAPL, ~3%). This pair replaced an earlier candidate,
+AI-infrastructure build-out outrunning the cash the business generates? Four of the five names sit
+on that cycle from different seats, which is what makes capital deployment the most
+decision-relevant variable for this particular universe: the hyperscaler spenders (MSFT and GOOGL,
+both near 23% capex intensity in the latest fiscal year); the beneficiary whose revenue is, to a
+first order, the other names' capex (NVDA, itself ~3% — its own capex is R&D and office footprint
+rather than data-center build); the power-infrastructure supplier selling into the build-out
+(ETN, ~3%); and the asset-light control case (AAPL, ~3%). This pair replaced an earlier candidate,
 operating leverage (ΔOpInc ÷ ΔRevenue) — a valid trajectory metric, but less decision-relevant in
 the current capex cycle than one causally linked to the FCF-quality card beside it.
 
@@ -124,7 +126,12 @@ the current capex cycle than one causally linked to the FCF-quality card beside 
 **Product surface, cut for scope discipline.** Streaming answers (polish, not graded; a thinking
 indicator covers the 20–60s latency). Auth and multi-user (an internal single-analyst prototype). A
 light theme (one audited theme beats two half-audited ones). Live intraday prices (daily close is
-the valuation basis; freshness is labelled rather than implied).
+the valuation basis; freshness is labelled rather than implied). Multi-turn chat history in Q&A —
+single-turn keeps every answer independently grounded and citable, where conversation state would
+let an ungrounded follow-up lean on a prior answer instead of a tool result. Scheduled refresh — a
+production tracker would poll EDGAR submissions for new 10-Ks and re-pull prices on a schedule;
+ingestion here is a manual command, but it is idempotent on natural keys, so a scheduler is a cron
+entry away rather than a redesign, and at review time the committed seed is the freshness contract.
 
 **Data model, cut for honesty about what a prototype should promise.** Alembic migrations — the
 schema ships once with a seed, and `create_all` plus `pg_dump` is honest for this scope rather than
