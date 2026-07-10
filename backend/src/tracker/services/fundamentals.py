@@ -353,6 +353,13 @@ def _build_row(facts: FyFacts, prior: FyFacts | None) -> FyRow:
     prev_cfo = prior_value("cfo")
     prev_capex = prior_value("capex")
 
+    # NVDA trap: a prior FY outside the latest filing's restated-comparative window keeps its
+    # pre-split share basis, so eps/share-count YoY across the boundary is a fiction (≈−96% for a
+    # 10:1 split). Suppress at read time rather than back-adjust stored values (DESIGN.md §6).
+    basis_break = metrics.share_basis_break(
+        _concept_value(facts, "shares_diluted"), prior_value("shares_diluted")
+    )
+
     yoy_cells: dict[str, Metric] = {
         # Absolute levels + fcf: relative % change (build_yoy).
         "revenue": metrics.build_yoy(rev, prev_rev),
@@ -362,8 +369,8 @@ def _build_row(facts: FyFacts, prior: FyFacts | None) -> FyRow:
         "gross_profit": metrics.build_yoy(gp, prev_gp),
         "operating_income": metrics.build_yoy(oi, prev_oi),
         "net_income": metrics.build_yoy(ni, prev_ni),
-        "eps_diluted": metrics.build_yoy(
-            _concept_value(facts, "eps_diluted"), prior_value("eps_diluted")
+        "eps_diluted": metrics.build_share_basis_yoy(
+            _concept_value(facts, "eps_diluted"), prior_value("eps_diluted"), basis_break
         ),
         "cfo": metrics.build_yoy(cfo, prev_cfo),
         "capex": metrics.build_yoy(capex, prev_capex),
@@ -371,8 +378,8 @@ def _build_row(facts: FyFacts, prior: FyFacts | None) -> FyRow:
             metrics.fcf_amount(cfo, capex),
             metrics.fcf_amount(prev_cfo, prev_capex),
         ),
-        "shares_diluted": metrics.build_yoy(
-            _concept_value(facts, "shares_diluted"), prior_value("shares_diluted")
+        "shares_diluted": metrics.build_share_basis_yoy(
+            _concept_value(facts, "shares_diluted"), prior_value("shares_diluted"), basis_break
         ),
         # Margins + fcf_conversion: percentage-POINT delta (curr margin − prior margin).
         "gross_margin": metrics.build_margin_change(

@@ -10,11 +10,64 @@ from sqlalchemy.orm import Session
 
 from fixtures.rich_seed import EDGECO_CIK, FULLCO_CIK
 from tracker.api import schemas
-from tracker.db.models import Fundamental
+from tracker.db.models import Company, Fundamental
 from tracker.services import fiscal, fundamentals, metrics
 from tracker.services.fundamentals import FyRow
 
 D = Decimal
+
+SPLITCO_CIK = 1000003
+
+# Four FYs spanning a 10:1 split between FY2022 and FY2023 (shares 2.5e9 -> 25e9), NVDA-shaped:
+# the stored FY2022 comparatives keep the pre-split basis. eps stays = net_income / shares.
+_SPLITCO_SERIES: dict[int, dict[str, Decimal]] = {
+    2021: {
+        "revenue": D("90000000000"),
+        "net_income": D("8000000000"),
+        "eps_diluted": D("3.2"),
+        "shares_diluted": D("2500000000"),
+    },
+    2022: {
+        "revenue": D("100000000000"),
+        "net_income": D("10000000000"),
+        "eps_diluted": D("4"),
+        "shares_diluted": D("2500000000"),
+    },
+    2023: {
+        "revenue": D("110000000000"),
+        "net_income": D("12500000000"),
+        "eps_diluted": D("0.5"),
+        "shares_diluted": D("25000000000"),
+    },
+    2024: {
+        "revenue": D("120000000000"),
+        "net_income": D("15000000000"),
+        "eps_diluted": D("0.6"),
+        "shares_diluted": D("25000000000"),
+    },
+}
+
+
+def _seed_splitco(session: Session) -> None:
+    session.add(Company(cik=SPLITCO_CIK, ticker="SPLT", name="Split Co."))
+    for fy, facts in _SPLITCO_SERIES.items():
+        for concept, value in facts.items():
+            session.add(
+                Fundamental(
+                    cik=SPLITCO_CIK,
+                    concept=concept,
+                    source_tag=f"us-gaap:{concept}",
+                    fiscal_year=fy,
+                    period_start=datetime.date(fy, 1, 1),
+                    period_end=datetime.date(fy, 12, 31),
+                    value=value,
+                    unit=fundamentals.CONCEPT_UNITS[concept],
+                    accession=f"{SPLITCO_CIK:010d}-{fy}-10K",
+                    filed=datetime.date(fy + 1, 3, 1),
+                    form="10-K",
+                )
+            )
+    session.commit()
 
 
 def _row(result: fundamentals.FundamentalsResult, fiscal_year: int) -> FyRow:
@@ -184,6 +237,32 @@ def test_get_fundamentals_edgeco_guards(rich_session: Session) -> None:
     fy2025 = _row(result, 2025)  # 2024 is a gap -> YoY None with no reason
     assert fy2025.yoy["revenue"].value is None and fy2025.yoy["revenue"].reason is None
     assert fy2025.metrics["shares_diluted"].value is None  # never reported -> P/S None downstream
+
+
+def test_split_boundary_suppresses_per_share_yoy(rich_session: Session) -> None:
+    _seed_splitco(rich_session)
+    result = fundamentals.get_fundamentals(rich_session, "SPLT")
+    assert result is not None
+
+    # (i) At the 10:1 boundary both per-share YoY cells are n.m. with the split reason — the raw
+    # ratio (0.5/4 − 1 ≈ −87.5%) must never surface.
+    boundary = _row(result, 2023)
+    for key in ("eps_diluted", "shares_diluted"):
+        cell = boundary.yoy[key]
+        assert cell.value is None
+        assert cell.reason == metrics.REASON_YOY_SHARE_BASIS_CHANGE
+
+    # (iii) Non-per-share YoY on the boundary row is untouched (splits don't change dollars).
+    assert boundary.yoy["revenue"].value == pytest.approx(0.10, rel=1e-9)
+    assert boundary.yoy["net_income"].value == pytest.approx(0.25, rel=1e-9)
+
+    # (ii) Same-basis years on both sides keep their normal per-share YoY.
+    before = _row(result, 2022)
+    assert before.yoy["eps_diluted"].value == pytest.approx(0.25, rel=1e-9)
+    assert before.yoy["shares_diluted"].value == pytest.approx(0.0, abs=1e-12)
+    after = _row(result, 2024)
+    assert after.yoy["eps_diluted"].value == pytest.approx(0.2, rel=1e-9)
+    assert after.yoy["shares_diluted"].value == pytest.approx(0.0, abs=1e-12)
 
 
 def test_get_fundamentals_unknown_ticker(rich_session: Session) -> None:

@@ -42,6 +42,11 @@ REASON_FCF_CONV_UNDEFINED = "undefined — net income ≤ 0"
 REASON_YOY_NONPOSITIVE_BASE = "sign change / non-positive base"
 REASON_CAPEX_INTENSITY_UNDEFINED = "undefined — revenue ≤ 0"
 REASON_REINVESTMENT_UNDEFINED = "undefined — CFO ≤ 0"
+REASON_YOY_SHARE_BASIS_CHANGE = "n.m. — share basis change (stock split)"
+
+# Split detector threshold. Real splits are ≥ 2:1 while organic dilution/buybacks move diluted
+# weighted-average shares a few percent a year, so 1.5 sits safely between the two regimes.
+SHARE_BASIS_BREAK_RATIO = Decimal("1.5")
 
 # P/S share-basis caveat (decision log #11): diluted WAD shares understate buybacks.
 BASIS_NOTE_PS_WAD = "P/S uses diluted weighted-average shares; understates buybacks."
@@ -109,6 +114,21 @@ def fcf_conversion(
     return float(amount / net_income)
 
 
+def share_basis_break(curr_shares: Decimal | None, prev_shares: Decimal | None) -> bool:
+    """True when adjacent-FY diluted shares jump ≥ 1.5x either way (split-style basis change).
+
+    A prior FY outside the latest filing's restated-comparative window keeps its pre-split share
+    basis, so a per-share YoY across that boundary compares two currencies. Missing or non-positive
+    inputs → False (nothing to judge; the ordinary YoY guards handle those).
+    """
+    if curr_shares is None or prev_shares is None or curr_shares <= 0 or prev_shares <= 0:
+        return False
+    hi, lo = (
+        (curr_shares, prev_shares) if curr_shares >= prev_shares else (prev_shares, curr_shares)
+    )
+    return hi / lo >= SHARE_BASIS_BREAK_RATIO
+
+
 def yoy(curr: Decimal | None, prev: Decimal | None) -> float | None:
     """curr / prev − 1. None if either missing; None if prev ≤ 0.
 
@@ -155,6 +175,14 @@ def build_yoy(curr: Decimal | None, prev: Decimal | None) -> Metric:
     if curr is None or prev is None:
         return Metric(value=None, unit="percent")
     return Metric(value=None, unit="percent", reason=REASON_YOY_NONPOSITIVE_BASE)
+
+
+def build_share_basis_yoy(curr: Decimal | None, prev: Decimal | None, basis_break: bool) -> Metric:
+    """build_yoy for per-share/share-count concepts: a detected share-basis break (stock split)
+    makes the ratio meaningless whatever the inputs, so it wins over every other outcome."""
+    if basis_break:
+        return Metric(value=None, unit="percent", reason=REASON_YOY_SHARE_BASIS_CHANGE)
+    return build_yoy(curr, prev)
 
 
 def build_capex_intensity(capex: Decimal | None, revenue: Decimal | None) -> Metric:

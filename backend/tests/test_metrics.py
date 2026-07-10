@@ -70,6 +70,31 @@ def test_yoy_and_builder() -> None:
     assert flip.value is None and flip.reason == metrics.REASON_YOY_NONPOSITIVE_BASE
 
 
+def test_share_basis_break_detection() -> None:
+    assert metrics.share_basis_break(D("25000000000"), D("2500000000"))  # 10:1 split
+    assert metrics.share_basis_break(D("2500000000"), D("25000000000"))  # reverse direction
+    assert metrics.share_basis_break(D("150"), D("100"))  # exactly the 1.5 threshold
+    assert metrics.share_basis_break(D("100"), D("150"))  # threshold, other direction
+    assert not metrics.share_basis_break(D("149"), D("100"))  # just under
+    assert not metrics.share_basis_break(D("103"), D("100"))  # ordinary dilution
+    assert not metrics.share_basis_break(None, D("100"))
+    assert not metrics.share_basis_break(D("100"), None)
+    assert not metrics.share_basis_break(D("0"), D("100"))
+    assert not metrics.share_basis_break(D("100"), D("-1"))
+
+
+def test_build_share_basis_yoy() -> None:
+    suppressed = metrics.build_share_basis_yoy(D("0.5"), D("4"), basis_break=True)
+    assert suppressed.value is None
+    assert suppressed.reason == metrics.REASON_YOY_SHARE_BASIS_CHANGE
+    assert suppressed.unit == "percent"
+    # No break -> exact build_yoy behaviour, guards included.
+    normal = metrics.build_share_basis_yoy(D("5"), D("4"), basis_break=False)
+    assert normal.value == pytest.approx(0.25, rel=1e-9)
+    flip = metrics.build_share_basis_yoy(D("5"), D("-10"), basis_break=False)
+    assert flip.value is None and flip.reason == metrics.REASON_YOY_NONPOSITIVE_BASE
+
+
 def test_capex_intensity_value_and_guards() -> None:
     assert metrics.capex_intensity(D("20"), D("400")) == pytest.approx(0.05, rel=1e-9)
     assert metrics.capex_intensity(None, D("400")) is None
