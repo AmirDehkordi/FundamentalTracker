@@ -11,6 +11,10 @@ node_modules/
 frontend/dist/
 .env
 Amir_Schonfeld_Execution_Playbook.md
+# pre-submission audit artifacts (scripts/screenshots/reports) — session-local, never shipped
+.audit/
+AUDIT_A_ENGINEERING.md
+AUDIT_B_PRODUCT.md
 .DS_Store
 *.log
 docs/img/raw/
