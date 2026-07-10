@@ -25,6 +25,24 @@ export function citationLabel(c: Citation): string {
   return parts.join(" · ");
 }
 
+/**
+ * Leading words of the model-authored `detail` (up to the first figure), as a face hint —
+ * "Revenue $60.9B…" -> "Revenue". Used only to tell apart pills whose standard faces collide
+ * (e.g. revenue and net income cited to the same FY + accession); null when nothing usable leads.
+ */
+export function citationDetailHint(
+  detail: string | null | undefined,
+): string | null {
+  if (!detail) return null;
+  const head = detail
+    .split(/[\d$(]/)[0]
+    .replace(/[\s·,:;—-]+$/, "")
+    .trim();
+  if (!head) return null;
+  const hint = head.split(/\s+/).slice(0, 2).join(" ");
+  return hint.length > 1 && hint.length <= 18 ? hint : null;
+}
+
 const TOOL_LABEL: Record<string, string> = {
   get_fundamentals: "Fundamentals",
   compare_companies: "Compare companies",
