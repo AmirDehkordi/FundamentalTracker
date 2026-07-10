@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -38,6 +40,14 @@ def test_companies_lists_seeded_universe(db_session: Session) -> None:
     assert data[0]["ticker"] == "AAPL"
     assert data[0]["latest_fiscal_year"] == 2025
     assert data[0]["latest_fy_label"] == "FY2025 (ended 2025-09-27)"
+
+
+def test_root_hint_when_frontend_not_built(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # `make run` without a frontend build must not 404 at / — it points at the packaged UI.
+    monkeypatch.setattr("tracker.api.app._FRONTEND_DIST", tmp_path / "missing-dist")
+    resp = TestClient(create_app()).get("/")
+    assert resp.status_code == 200
+    assert resp.json() == {"hint": "UI is served by the Docker image; API docs at /docs"}
 
 
 def test_all_routes_registered() -> None:

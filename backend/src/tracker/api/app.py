@@ -70,4 +70,10 @@ def create_app() -> FastAPI:
     app.include_router(health.router)  # root; tagged "meta"
     if _FRONTEND_DIST.is_dir():
         _mount_frontend(app, _FRONTEND_DIST)
+    else:
+        # Local `make run` has no frontend build; a bare 404 at / reads as a broken app.
+        @app.get("/", include_in_schema=False)
+        def root_hint() -> dict[str, str]:
+            return {"hint": "UI is served by the Docker image; API docs at /docs"}
+
     return app
