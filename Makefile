@@ -71,5 +71,5 @@ cache-risk-themes: ## Precompute + cache Item 1A risk themes for the tracked uni
 seed-dump: ## Dump the dev DB to seed/init/01_seed.sql.gz (auto-restored on a fresh clone)
 	bash scripts/make_seed.sh
 
-fresh-check: ## Fresh-clone rehearsal (P10 — not yet implemented)
-	@echo "fresh-check lands in P10"
+fresh-check: ## Fresh-clone rehearsal: clone, docker compose up, /health, /api/companies, one /api/ask
+	bash scripts/fresh_check.sh
