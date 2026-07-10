@@ -1,6 +1,7 @@
 import { MessageSquareText } from "lucide-react";
 
 import { AsyncBoundary } from "@/components/AsyncBoundary";
+import { Freshness } from "@/components/Freshness";
 import { NotReady } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -87,6 +88,10 @@ export function TopBar({
         )}
 
         <div className="ml-auto flex items-center gap-4">
+          {/* Freshness appears ONCE app-wide, here per the design skill's layout map. */}
+          <div className="hidden md:block">
+            <Freshness />
+          </div>
           <Button size="sm" onClick={onAskClick}>
             <MessageSquareText className="size-4" aria-hidden />
             Ask SchonAI

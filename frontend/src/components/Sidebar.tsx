@@ -2,7 +2,6 @@ import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
 
 import logoUrl from "@/assets/schonfeld_page_logo.png";
 import { AsyncBoundary, isEmptyArray } from "@/components/AsyncBoundary";
-import { Freshness } from "@/components/Freshness";
 import { EmptyState } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -187,10 +186,6 @@ export function Sidebar() {
           {(data) => <CompanyList companies={data} />}
         </AsyncBoundary>
       </ScrollArea>
-      <Separator />
-      <div className="shrink-0 px-4 py-3">
-        <Freshness />
-      </div>
     </nav>
   );
 }
