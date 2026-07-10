@@ -18,11 +18,76 @@ export type ValueSource = "metrics" | "yoy";
 
 /**
  * How the trailing "YoY (latest)" column is derived for a row:
- *  - "relative"   — read latest row's yoy[key] (backend relative %). Level metrics.
- *  - "margin-rel" — relative % of metrics[key] latest vs prior FY (margins have no backend yoy cell).
- *  - "none"       — em dash + tooltip (a YoY-of-a-ratio isn't meaningful).
+ *  - "relative"  — read latest row's yoy[key] (backend relative %). Level metrics.
+ *  - "margin-pp" — percentage-POINT change of metrics[key] latest vs prior FY (margins have no backend
+ *                  yoy cell); rendered as "-1.0pp".
+ *  - "none"      — em dash + tooltip (a YoY-of-a-ratio isn't meaningful).
  */
-export type YoyKind = "relative" | "margin-rel" | "none";
+export type YoyKind = "relative" | "margin-pp" | "none";
+
+// --- Polarity: does an increase help or hurt? Used to colour deltas by GOODNESS, not by raw sign. ---
+export type Polarity = "up-good" | "up-bad" | "neutral";
+export type Tone = "pos" | "neg" | "neutral";
+
+/**
+ * Per-metric polarity. Rising costs / rising share count are bad; capex is a judgment call left neutral
+ * (grey), since more investment is neither inherently good nor bad. Anything unmapped defaults up-good.
+ */
+export const METRIC_POLARITY: Record<string, Polarity> = {
+  revenue: "up-good",
+  gross_profit: "up-good",
+  operating_income: "up-good",
+  net_income: "up-good",
+  eps_diluted: "up-good",
+  cfo: "up-good",
+  fcf: "up-good",
+  gross_margin: "up-good",
+  operating_margin: "up-good",
+  net_margin: "up-good",
+  fcf_margin: "up-good",
+  fcf_conversion: "up-good",
+  cost_of_revenue: "up-bad",
+  shares_diluted: "up-bad", // dilution rising is bad
+  capex: "neutral",
+  capex_intensity: "neutral", // more investment is neither inherently good nor bad
+  reinvestment_ratio: "neutral",
+};
+
+export function polarityOf(key: string): Polarity {
+  return METRIC_POLARITY[key] ?? "up-good";
+}
+
+/** Colour a signed change by whether it is an improvement; zero or neutral-polarity metrics -> grey. */
+export function toneForDelta(fraction: number, polarity: Polarity): Tone {
+  if (fraction === 0 || polarity === "neutral") return "neutral";
+  const improving = polarity === "up-good" ? fraction > 0 : fraction < 0;
+  return improving ? "pos" : "neg";
+}
+
+/** Margin keys — their Compare YoY is a percentage-POINT change, not a relative %. */
+export const MARGIN_KEYS = new Set([
+  "gross_margin",
+  "operating_margin",
+  "net_margin",
+  "fcf_margin",
+]);
+
+/**
+ * Metrics whose per-company YoY the Compare tab can derive client-side (levels + margins). Excludes
+ * ratios/growth that have no meaningful YoY (fcf_conversion, reinvestment_ratio, revenue_yoy).
+ */
+export const YOY_ELIGIBLE = new Set([
+  "revenue",
+  "cost_of_revenue",
+  "gross_profit",
+  "operating_income",
+  "net_income",
+  "eps_diluted",
+  "cfo",
+  "capex",
+  "shares_diluted",
+  ...MARGIN_KEYS,
+]);
 
 export interface MetricRow {
   key: string;
@@ -32,8 +97,7 @@ export interface MetricRow {
   yoyKind: YoyKind;
 }
 
-// Fundamentals table rows, in display order. operating_leverage is the one row read from `yoy` (it is
-// inherently a per-FY year-over-year ratio, absent from `metrics`).
+// Fundamentals table rows, in display order.
 export const METRIC_ROWS: MetricRow[] = [
   {
     key: "revenue",
@@ -110,28 +174,28 @@ export const METRIC_ROWS: MetricRow[] = [
     label: "Gross margin",
     group: "ratio",
     valueSource: "metrics",
-    yoyKind: "margin-rel",
+    yoyKind: "margin-pp",
   },
   {
     key: "operating_margin",
     label: "Operating margin",
     group: "ratio",
     valueSource: "metrics",
-    yoyKind: "margin-rel",
+    yoyKind: "margin-pp",
   },
   {
     key: "net_margin",
     label: "Net margin",
     group: "ratio",
     valueSource: "metrics",
-    yoyKind: "margin-rel",
+    yoyKind: "margin-pp",
   },
   {
     key: "fcf_margin",
     label: "FCF margin",
     group: "ratio",
     valueSource: "metrics",
-    yoyKind: "margin-rel",
+    yoyKind: "margin-pp",
   },
   {
     key: "fcf_conversion",
@@ -141,10 +205,17 @@ export const METRIC_ROWS: MetricRow[] = [
     yoyKind: "none",
   },
   {
-    key: "operating_leverage",
-    label: "Operating leverage",
+    key: "capex_intensity",
+    label: "Capex intensity",
     group: "ratio",
-    valueSource: "yoy",
+    valueSource: "metrics",
+    yoyKind: "margin-pp",
+  },
+  {
+    key: "reinvestment_ratio",
+    label: "Capex / CFO",
+    group: "ratio",
+    valueSource: "metrics",
     yoyKind: "none",
   },
 ];
@@ -199,7 +270,7 @@ export const COMPARE_METRIC_GROUPS: CompareMetricGroup[] = [
       { value: "net_margin", label: "Net margin" },
       { value: "fcf_margin", label: "FCF margin" },
       { value: "fcf_conversion", label: "FCF conversion" },
-      { value: "operating_leverage", label: "Operating leverage" },
+      { value: "capex_intensity", label: "Capex intensity" },
     ],
   },
   {

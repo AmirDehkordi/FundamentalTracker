@@ -1,12 +1,14 @@
 # Local/macOS developer entrypoints. CI calls the underlying tools directly (see .github/workflows).
 .DEFAULT_GOAL := help
 .PHONY: help setup db-up db-down init-db ingest ingest-cache run test test-all verify \
-        evals seed-dump fresh-check web-setup web-verify
+        evals cache-risk-themes seed-dump fresh-check web-setup web-verify
 
 # Backend gate restored to 80 (metrics engine + ingestion carry real logic), per CLAUDE.md and
-# PLAN.md §11. Services carry a tighter 90 gate — that is where correctness lives.
+# PLAN.md §11. Services carry a tighter 90 gate — that is where correctness lives. Agent carries an
+# 85 gate: the routing/grounding loop is graded behaviour, so it must stay well covered.
 COV_FAIL_UNDER := 80
 SERVICES_COV_FAIL_UNDER := 90
+AGENT_COV_FAIL_UNDER := 85
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -43,10 +45,14 @@ verify: ## Backend format+lint+types+coverage gates, then the frontend typecheck
 	uv run ruff format --check .
 	uv run ruff check .
 	uv run mypy backend/src evals
+	# Single test run: one full-suite pass collects coverage once, then the services/agent gates
+	# are just narrower reports over that same .coverage data (no re-running tests per gate).
 	uv run pytest -m "not integration" --cov=tracker --cov-report=term-missing \
 		--cov-fail-under=$(COV_FAIL_UNDER)
-	uv run pytest -m "not integration" --cov=tracker.services --cov-report=term-missing \
-		--cov-fail-under=$(SERVICES_COV_FAIL_UNDER)
+	uv run coverage report --include="backend/src/tracker/services/*" \
+		--fail-under=$(SERVICES_COV_FAIL_UNDER)
+	uv run coverage report --include="backend/src/tracker/agent/*" \
+		--fail-under=$(AGENT_COV_FAIL_UNDER)
 	$(MAKE) web-verify
 
 web-setup: ## Install frontend deps from the lockfile (needs Node 20)
@@ -57,6 +63,9 @@ web-verify: ## Frontend: typecheck + lint + format check + production build (nee
 
 evals: ## Run the eval question set against a running /api/ask (needs a live LLM key)
 	uv run python -m evals.run
+
+cache-risk-themes: ## Precompute + cache Item 1A risk themes for the tracked universe (needs a live LLM key)
+	uv run python scripts/build_risk_themes.py
 
 seed-dump: ## Dump the dev DB to seed/init/01_seed.sql.gz (auto-restored on a fresh clone)
 	bash scripts/make_seed.sh

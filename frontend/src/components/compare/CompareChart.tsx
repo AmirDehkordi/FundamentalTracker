@@ -21,13 +21,15 @@ import {
   gridProps,
 } from "@/components/charts/chartTheme";
 import { makeFyTick, type SubLabel } from "@/components/charts/DualAxisTick";
+import type { CompareValueFormat } from "@/lib/compare";
 import {
   describeMetric,
   formatDayMonthYear,
   formatPerShare,
+  formatPp,
   formatShares,
   formatSignedPercent,
-  formatUsd,
+  formatUsdCompact,
 } from "@/lib/format";
 import { tickerColor } from "@/lib/tickers";
 
@@ -51,13 +53,15 @@ function axisFormatter(unit: MetricUnit) {
   return (v: number): string => {
     switch (unit) {
       case "USD":
-        return formatUsd(v);
+        return formatUsdCompact(v); // "$600B" (no trailing .0) on the axis
       case "USD/shares":
         return formatPerShare(v);
       case "shares":
         return formatShares(v);
       case "percent":
         return `${Math.round(v * 100)}%`;
+      case "percentage_points":
+        return formatPp(v);
       case "ratio":
         return `${v.toFixed(1)}x`;
     }
@@ -76,21 +80,28 @@ function CmpTooltip({ active, payload }: TooltipProps<number, string>) {
   );
 }
 
-/** One bar per company in its fixed series colour; x-axis footnotes each with its own fiscal year. */
+/** One bar per company in its fixed series colour; x-axis footnotes each with its own fiscal year.
+ *  `valueFormat` overrides the unit-based axis/label formatting (used by the YoY chart for pp / signed %). */
 export function CompareChart({
   rows,
   signed = false,
+  valueFormat,
 }: {
   rows: CompareCell[];
   signed?: boolean;
+  valueFormat?: CompareValueFormat;
 }) {
   const unit = rows[0]?.value.unit ?? "USD";
   const data: CmpDatum[] = rows.map((r) => ({
     ticker: r.ticker,
-    // n.m. companies (e.g. NVDA capex) get a 0-height bar so their "n.m." label stays on-canvas at the
-    // baseline instead of being extrapolated off the plot area by Recharts.
+    // n.m. companies get a 0-height bar so their "n.m." label stays on-canvas at the baseline instead
+    // of being extrapolated off the plot area by Recharts.
     barValue: r.value.value ?? 0,
-    valueLabel: cellLabel(r, signed),
+    valueLabel: valueFormat
+      ? r.value.value != null
+        ? valueFormat.label(r)
+        : describeMetric(r.value).text
+      : cellLabel(r, signed),
     fy: `FY${r.fiscal_year}`,
     periodEnd: r.period_end,
   }));
@@ -109,11 +120,15 @@ export function CompareChart({
           interval={0}
           height={40}
         />
-        <YAxis {...axisBase} width={52} tickFormatter={axisFormatter(unit)} />
+        <YAxis
+          {...axisBase}
+          width={52}
+          tickFormatter={valueFormat ? valueFormat.axis : axisFormatter(unit)}
+        />
         <ReferenceLine y={0} stroke={CHART.grid} />
         <RTooltip
           content={<CmpTooltip />}
-          cursor={{ fill: "rgba(110,168,254,0.06)" }}
+          cursor={{ fill: "rgba(224,166,78,0.06)" }}
         />
         <Bar
           dataKey="barValue"

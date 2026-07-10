@@ -39,6 +39,15 @@ def test_revenue_falls_back_to_second_tag_per_year() -> None:
     assert revenue[2024].source_tag == "us-gaap:Revenues"
 
 
+def test_capex_falls_back_to_productive_assets_tag() -> None:
+    # NVDA-shaped: FY2012 only tags the PP&E-only element; FY2023 only tags the combined
+    # PP&E+intangibles element it switched to. Both years resolve with their own source_tag.
+    capex = _by_year(xbrl.extract_annual_facts(_load("capex_fallback")), "capex")
+    assert capex[2012].source_tag == "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"
+    assert capex[2023].source_tag == "us-gaap:PaymentsToAcquireProductiveAssets"
+    assert capex[2023].value == Decimal("1833000000")
+
+
 def test_fiscal_year_is_period_end_year_not_entry_fy() -> None:
     # FY2022 revenue appears as a comparative inside a 2024-filed 10-K carrying fy=2024; it must be
     # labelled FY2022 from period_end (finance/Bloomberg convention), never from the entry's fy.

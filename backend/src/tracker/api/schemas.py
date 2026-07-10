@@ -35,7 +35,7 @@ class APIModel(BaseModel):
 # value objects
 # ---------------------------------------------------------------------------
 
-MetricUnit = Literal["USD", "USD/shares", "shares", "percent", "ratio"]
+MetricUnit = Literal["USD", "USD/shares", "shares", "percent", "ratio", "percentage_points"]
 CitationSource = Literal["fundamental", "filing", "price", "insider"]
 
 
@@ -43,11 +43,12 @@ class MetricValue(APIModel):
     """One metric cell: a value, or an explicit None-with-reason.
 
     Formatting is driven entirely by `unit` so the frontend never guesses:
-      USD        -> adaptive '$130.5B' / '$964M'
-      USD/shares -> '$1.19'
-      shares     -> count
-      percent    -> value*100, 1dp, '%'   (margins AND YoY: 0.114 -> '+11.4%')
-      ratio      -> 'x'-suffixed           (P/E, P/S, FCF conversion, operating leverage)
+      USD               -> adaptive '$130.5B' / '$964M'
+      USD/shares        -> '$1.19'
+      shares            -> count
+      percent           -> value*100, 1dp, '%'   (margin LEVELS + level YoY: 0.114 -> '+11.4%')
+      ratio             -> 'x'-suffixed          (P/E, P/S, FCF conversion, reinvestment ratio)
+      percentage_points -> value*100, 1dp, 'pp'  (margin YoY: 0.02 -> '+2.0pp', NOT a % change)
 
     `reason` is populated iff `value is None`; the UI renders 'n.m. — <reason>'. `superseded_*`
     surface a restatement (latest-filed-wins kept the prior value visible) so the UI can tooltip
@@ -77,6 +78,9 @@ class CompanyOut(APIModel):
     latest_fiscal_year: int | None = None
     latest_period_end: date | None = None
     latest_fy_label: str | None = None  # "FY2025 (ended 2025-09-27)"
+    # latest close x latest-reported-FY diluted shares (same approximation as trailing P/S); None
+    # when either input is missing. Sort-only field — no MetricValue reason needed.
+    market_cap: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -86,9 +90,10 @@ class CompanyOut(APIModel):
 
 class FundamentalsRow(APIModel):
     """One fiscal year. `metrics` = raw canonical concepts, `fcf`, and the derived margins
-    (gross_margin, operating_margin, net_margin, fcf_margin, fcf_conversion) in display order.
-    `yoy` carries this-FY-vs-prior-FY for the raw levels + `fcf`, plus `operating_leverage`
-    (inherently a YoY quantity); the margins have no YoY cell. Each value is a MetricValue, so a
+    (gross_margin, operating_margin, net_margin, fcf_margin, fcf_conversion, capex_intensity,
+    reinvestment_ratio) in display order. `yoy` carries this-FY-vs-prior-FY for the raw levels +
+    `fcf` (unit 'percent', % change) and the margins + fcf_conversion + capex_intensity +
+    reinvestment_ratio (unit 'percentage_points', a pp delta). Each value is a MetricValue, so a
     None YoY carries its reason ('sign change / non-positive base')."""
 
     fiscal_year: int
@@ -223,6 +228,32 @@ class RiskDiffOut(APIModel):
     note: str | None = None
 
 
+class RiskThemeItem(APIModel):
+    """One clustered risk theme grouping several diff excerpts. Grounded ONLY in the deterministic
+    diff text."""
+
+    title: str  # <= 6 words
+    summary: str  # <= 30 words
+    paragraph_count: int  # how many source excerpts this theme groups
+
+
+class RiskDiffThemesOut(APIModel):
+    """Top-3 thematic clusters of newly added/heightened and top-3 of removed/reduced risks
+    (§8/§14). The diff itself stays deterministic; only the clustering/summarisation is the model's.
+    `available=False` mirrors RiskDiffOut's degraded state; a diff with two filed years but no net
+    changes is `available=True` with both theme lists empty."""
+
+    ticker: str
+    cik: int
+    item: str  # "1A"
+    latest: FilingRef | None
+    prior: FilingRef | None
+    added_themes: list[RiskThemeItem]  # top 3
+    removed_themes: list[RiskThemeItem]  # top 3
+    available: bool = True
+    note: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # insider (Form 4 summary)
 # ---------------------------------------------------------------------------
@@ -245,6 +276,7 @@ class InsiderSummaryOut(APIModel):
     window_365d: InsiderWindow
     caveat: str  # standing 10b5-1 caveat line (signal not oversold)
     has_data: bool  # False -> deliberate empty state
+    history_capped: bool  # True -> ingestion's per-company filing cap may hide older activity
 
 
 # ---------------------------------------------------------------------------
@@ -282,14 +314,26 @@ class ToolTrace(APIModel):
     result_summary: str  # <= 120 chars (P8)
 
 
+AnswerKind = Literal["answer", "clarification", "decline", "error"]
+
+
 class FinalAnswer(APIModel):
     """The /api/ask response AND the schema bound to the LLM's structured output (P8 transport
     ladder). Kept flat for proxy compatibility; extra='forbid' catches hallucinated fields and
-    triggers the schema retry."""
+    triggers the schema retry.
+
+    `kind` splits the four outcomes the UI styles differently: a real `answer`; a `clarification`
+    (the agent asks ONE conversational question back — not a refusal); a `decline` (out of scope /
+    advice / forward-looking); an `error` (loop/endpoint failure). `declined` stays, and is derived
+    (`kind in {decline, error}`) for backward compatibility. `suggested_followups` are 1-3 natural-
+    language prompts the UI renders as chips — on a clarification, answerable rephrasings; on a
+    decline, in-scope alternatives."""
 
     answer_md: str
     citations: list[Citation] = Field(default_factory=list)
     trace: list[ToolTrace] = Field(default_factory=list)
+    kind: AnswerKind = "answer"
+    suggested_followups: list[str] = Field(default_factory=list)
     declined: bool = False
     decline_reason: str | None = None
 

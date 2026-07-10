@@ -164,21 +164,105 @@ def test_filing_tool_with_hits_retries_for_missing_filing_citation(db_session: S
     assert len(client.calls) == 4
 
 
-def test_no_hit_filing_search_does_not_demand_a_citation(db_session: Session) -> None:
-    # A count=0 search returned no citable text, so the loop must NOT retry demanding a filing
-    # citation the model cannot honestly supply (it would pressure a fabricated url/accession).
+def test_no_hit_search_injects_one_corrective_retry(db_session: Session) -> None:
+    # A count=0 search must not go straight to an apology: the loop injects ONE corrective hint and
+    # gives the model another turn. Here the model still finds nothing and answers gracefully — and
+    # because nothing citable was returned, no filing citation is demanded.
+    client = FakeOpenAI(
+        [
+            tool_response(
+                tool_call("c1", "search_filings", {"ticker": "AAPL", "query": "zznomatchqq"})
+            ),
+            stop_turn(),  # give-up attempt -> loop injects the retry hint
+            stop_turn(),  # after the hint, still nothing better -> answer
+            final_response({"answer_md": "No matching passages were found.", "citations": []}),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.declined is False
+    assert answer.kind == "answer"
+    assert len(client.calls) == 4  # the nudged extra tool turn happened, then the final
+
+
+def test_no_hit_retry_hint_fires_only_once(db_session: Session) -> None:
+    # If the model stops again after the single nudge, the loop does NOT nudge forever — it answers.
     client = FakeOpenAI(
         [
             tool_response(
                 tool_call("c1", "search_filings", {"ticker": "AAPL", "query": "zznomatchqq"})
             ),
             stop_turn(),
-            final_response({"answer_md": "No matching passages were found.", "citations": []}),
+            tool_response(  # the model retries with different keywords, still 0 hits
+                tool_call("c2", "search_filings", {"ticker": "AAPL", "query": "yynohitqq"})
+            ),
+            stop_turn(),
+            final_response(
+                {"answer_md": "The filings do not appear to cover that.", "citations": []}
+            ),
         ]
     )
     answer = _run(db_session, client)
+    assert [t.tool for t in answer.trace] == ["search_filings", "search_filings"]
     assert answer.declined is False
-    assert len(client.calls) == 3  # no 4th (retry) call — nothing citable was returned
+
+
+def test_clarification_kind_and_followups(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            stop_turn(),
+            final_response(
+                {
+                    "answer_md": "Which company do you mean, and which risk metric?",
+                    "kind": "clarification",
+                    "suggested_followups": [
+                        "NVIDIA gross margin last year",
+                        "New risk factors in NVDA's latest 10-K",
+                    ],
+                }
+            ),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.kind == "clarification"
+    assert answer.declined is False  # a clarification is not a refusal
+    assert len(answer.suggested_followups) == 2
+
+
+def test_decline_kind_maps_to_declined(db_session: Session) -> None:
+    client = FakeOpenAI(
+        [
+            stop_turn(),
+            final_response(
+                {
+                    "answer_md": "The tracker holds reported historicals only.",
+                    "kind": "decline",
+                    "decline_reason": "forward-looking",
+                    "suggested_followups": ["NVDA revenue for the last three fiscal years"],
+                }
+            ),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.kind == "decline" and answer.declined is True
+    assert answer.suggested_followups == ["NVDA revenue for the last three fiscal years"]
+
+
+def test_legacy_declined_maps_to_decline_kind(db_session: Session) -> None:
+    # A model that sets only the legacy `declined` flag (no `kind`) still resolves to a decline.
+    client = FakeOpenAI(
+        [
+            stop_turn(),
+            final_response(
+                {
+                    "answer_md": "That ticker is not tracked.",
+                    "declined": True,
+                    "decline_reason": "non-universe",
+                }
+            ),
+        ]
+    )
+    answer = _run(db_session, client)
+    assert answer.kind == "decline" and answer.declined is True
 
 
 def test_arg_validation_surfaces_as_tool_error(db_session: Session) -> None:

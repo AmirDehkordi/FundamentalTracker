@@ -41,6 +41,14 @@ def test_list_companies(db_session: Session) -> None:
     assert [c.ticker for c in companies] == ["AAPL", "NVDA"]  # ascending by ticker
     assert companies[0].latest_fiscal_year == 2025
     assert companies[0].latest_fy_label == "FY2025 (ended 2025-09-27)"
+    assert companies[0].market_cap is None  # mini_seed has no shares_diluted
+
+
+def test_list_companies_market_cap(rich_session: Session) -> None:
+    companies = {c.ticker: c for c in fundamentals.list_companies(rich_session)}
+    # close 179 (latest of 30 days from 150) x shares_diluted 16e9 at FY2025 (FULLCO's latest FY).
+    assert companies["FULL"].market_cap == D("179") * D("16000000000")
+    assert companies["EDGE"].market_cap is None  # EDGECO has no shares_diluted
 
 
 def test_get_latest_completed_fy_delegates(rich_session: Session) -> None:
@@ -120,6 +128,11 @@ def test_get_fundamentals_metrics_units_and_values(rich_session: Session) -> Non
     assert row.metrics["fcf"].unit == "USD"
     assert row.metrics["fcf_conversion"].value == pytest.approx(100 / 112, rel=1e-9)
     assert row.metrics["fcf_conversion"].unit == "ratio"
+    # capex = revenue * 0.05, cfo = revenue * 0.30 (rich_seed._fullco_facts).
+    assert row.metrics["capex_intensity"].value == pytest.approx(0.05, rel=1e-9)
+    assert row.metrics["capex_intensity"].unit == "percent"
+    assert row.metrics["reinvestment_ratio"].value == pytest.approx(1 / 6, rel=1e-9)
+    assert row.metrics["reinvestment_ratio"].unit == "ratio"
 
 
 def test_get_fundamentals_yoy(rich_session: Session) -> None:
@@ -133,16 +146,28 @@ def test_get_fundamentals_yoy(rich_session: Session) -> None:
 
 
 def test_get_fundamentals_yoy_mirrors_raw_levels(rich_session: Session) -> None:
-    # Schema: "yoy mirrors metrics" — every raw level (non-ratio) has a yoy cell. The five margins
-    # are metrics-only; operating_leverage is yoy-only. cost_of_revenue must not be dropped.
+    # Every raw level (non-ratio) has a % YoY cell. cost_of_revenue must not be dropped. The seven
+    # ratios (margins + fcf_conversion + capex_intensity + reinvestment_ratio) all carry a
+    # percentage-point YoY instead.
     result = fundamentals.get_fundamentals(rich_session, "FULL")
     assert result is not None
     row = _row(result, 2025)
-    ratio_only = {"gross_margin", "operating_margin", "net_margin", "fcf_margin", "fcf_conversion"}
-    raw_levels = set(row.metrics) - ratio_only
+    margins = {
+        "gross_margin",
+        "operating_margin",
+        "net_margin",
+        "fcf_margin",
+        "fcf_conversion",
+        "capex_intensity",
+        "reinvestment_ratio",
+    }
+    raw_levels = set(row.metrics) - margins
     assert raw_levels <= set(row.yoy)
     assert "cost_of_revenue" in row.yoy
-    assert set(row.yoy) - raw_levels == {"operating_leverage"}
+    assert set(row.yoy) - raw_levels == margins
+    # Margin YoY is a percentage-point delta.
+    assert row.yoy["gross_margin"].unit == "percentage_points"
+    assert row.yoy["capex_intensity"].unit == "percentage_points"
 
 
 def test_get_fundamentals_edgeco_guards(rich_session: Session) -> None:
@@ -150,9 +175,11 @@ def test_get_fundamentals_edgeco_guards(rich_session: Session) -> None:
     assert result is not None
     fy2023 = _row(result, 2023)
     assert fy2023.yoy["net_income"].reason == metrics.REASON_YOY_NONPOSITIVE_BASE
-    assert fy2023.yoy["operating_leverage"].reason == metrics.REASON_OPLEV_OPINC_SIGN_FLIP
     assert fy2023.metrics["fcf_conversion"].reason == metrics.REASON_FCF_CONV_UNDEFINED
     assert fy2023.metrics["revenue"].superseded_value == pytest.approx(1.05e11, rel=1e-9)
+    # capex 3e9 / revenue 110e9, capex 3e9 / cfo 8e9 — both well-defined despite the other guards.
+    assert fy2023.metrics["capex_intensity"].value == pytest.approx(3 / 110, rel=1e-9)
+    assert fy2023.metrics["reinvestment_ratio"].value == pytest.approx(0.375, rel=1e-9)
 
     fy2025 = _row(result, 2025)  # 2024 is a gap -> YoY None with no reason
     assert fy2025.yoy["revenue"].value is None and fy2025.yoy["revenue"].reason is None

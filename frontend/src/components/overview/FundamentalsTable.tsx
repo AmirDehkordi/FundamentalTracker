@@ -17,21 +17,25 @@ import {
 import {
   EM_DASH,
   formatDayMonthYear,
+  formatPp,
   formatSignedPercent,
-  relativeChange,
+  pointChange,
 } from "@/lib/format";
 import {
   GROUP_LABELS,
   METRIC_ROWS,
   type MetricGroup,
   type MetricRow,
+  type Polarity,
   metricAt,
+  polarityOf,
+  toneForDelta,
 } from "@/lib/metrics";
 import { cn } from "@/lib/utils";
 
 const NONE_TOOLTIP: Record<string, string> = {
   fcf_conversion: "No year-over-year — a ratio has no meaningful YoY.",
-  operating_leverage: "Operating leverage is itself a year-over-year measure.",
+  reinvestment_ratio: "No year-over-year — a ratio has no meaningful YoY.",
 };
 
 const STICKY =
@@ -39,6 +43,9 @@ const STICKY =
 
 interface YoyDescriptor {
   fraction: number | null;
+  /** "pp" for margins (point delta), "pct" (relative %) otherwise. */
+  unit: "pct" | "pp";
+  polarity: Polarity;
   nmReason?: string | null;
   emptyTooltip?: string;
 }
@@ -49,32 +56,34 @@ function yoyForRow(
   latest: FundamentalsRow,
   prior: FundamentalsRow | undefined,
 ): YoyDescriptor {
+  const polarity = polarityOf(meta.key);
   if (meta.yoyKind === "none") {
-    return { fraction: null, emptyTooltip: NONE_TOOLTIP[meta.key] };
+    return {
+      fraction: null,
+      unit: "pct",
+      polarity,
+      emptyTooltip: NONE_TOOLTIP[meta.key],
+    };
   }
   if (meta.yoyKind === "relative") {
     const mv = metricAt(latest.yoy, meta.key);
-    return { fraction: mv.value, nmReason: mv.reason };
+    return { fraction: mv.value, unit: "pct", polarity, nmReason: mv.reason };
   }
-  // margin-rel: relative % vs the prior consecutive FY (margins carry no backend YoY cell).
-  const priorMetric =
-    prior && prior.fiscal_year === latest.fiscal_year - 1
-      ? metricAt(prior.metrics, meta.key)
-      : undefined;
-  const fraction = priorMetric
-    ? relativeChange(
+  // margin-pp: percentage-point change vs the prior consecutive FY (margins carry no backend YoY cell).
+  const hasPrior =
+    prior != null && prior.fiscal_year === latest.fiscal_year - 1;
+  const fraction = hasPrior
+    ? pointChange(
         metricAt(latest.metrics, meta.key).value,
-        priorMetric.value,
+        metricAt(prior.metrics, meta.key).value,
       )
     : null;
-  if (fraction != null) return { fraction };
-  // Distinguish the two null causes so the tooltip is accurate: a present-but-non-positive prior base
-  // vs. no consecutive prior FY at all.
+  if (fraction != null) return { fraction, unit: "pp", polarity };
   return {
     fraction: null,
-    emptyTooltip: priorMetric
-      ? "Prior-year margin is non-positive; relative change isn't meaningful."
-      : "No comparable prior fiscal year.",
+    unit: "pp",
+    polarity,
+    emptyTooltip: "No comparable prior fiscal year.",
   };
 }
 
@@ -91,13 +100,24 @@ function TooltippedDash({ text, tip }: { text: string; tip: string }) {
   );
 }
 
-function YoyCell({ fraction, nmReason, emptyTooltip }: YoyDescriptor) {
+const TONE_CLASS = {
+  pos: "text-pos",
+  neg: "text-neg",
+  neutral: "text-fg-2",
+} as const;
+
+function YoyCell({
+  fraction,
+  unit,
+  polarity,
+  nmReason,
+  emptyTooltip,
+}: YoyDescriptor) {
   if (fraction != null && Number.isFinite(fraction)) {
-    const tone =
-      fraction > 0 ? "text-pos" : fraction < 0 ? "text-neg" : "text-fg-2";
+    const tone = TONE_CLASS[toneForDelta(fraction, polarity)];
     return (
       <span className={cn("tabular-nums", tone)}>
-        {formatSignedPercent(fraction)}
+        {unit === "pp" ? formatPp(fraction) : formatSignedPercent(fraction)}
       </span>
     );
   }
@@ -125,8 +145,8 @@ export function FundamentalsTable({ rows }: { rows: FundamentalsRow[] }) {
             <TableHead key={r.fiscal_year} className="text-right align-bottom">
               <div className="flex flex-col items-end leading-tight">
                 <span className="font-medium text-fg-2">FY{r.fiscal_year}</span>
-                <span className="font-normal text-fg-3">
-                  ended {formatDayMonthYear(r.period_end)}
+                <span className="whitespace-nowrap text-[11px] font-normal text-fg-3">
+                  e. {formatDayMonthYear(r.period_end)}
                 </span>
               </div>
             </TableHead>
@@ -134,7 +154,9 @@ export function FundamentalsTable({ rows }: { rows: FundamentalsRow[] }) {
           <TableHead className="text-right align-bottom">
             <div className="flex flex-col items-end leading-tight">
               <span className="font-medium text-fg-2">YoY</span>
-              <span className="font-normal text-fg-3">latest FY</span>
+              <span className="whitespace-nowrap text-[11px] font-normal text-fg-3">
+                (latest FY)
+              </span>
             </div>
           </TableHead>
         </tr>
@@ -150,7 +172,7 @@ export function FundamentalsTable({ rows }: { rows: FundamentalsRow[] }) {
                 <tr>
                   <td
                     colSpan={cols}
-                    className="border-b border-border bg-surface-1 px-2 pb-1 pt-3 text-xs uppercase tracking-wide text-fg-3"
+                    className="border-b border-border bg-surface-1 px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-fg-2"
                   >
                     {GROUP_LABELS[meta.group]}
                   </td>

@@ -8,14 +8,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from tracker.db.models import Company, Filing, Price
 
-# range key -> lookback days, measured from the latest stored trading date.
-_RANGE_DAYS = {"1m": 31, "6m": 183, "1y": 366, "2y": 731}
+# range key -> lookback days, measured from the latest stored trading date. "3y" is the fetch window
+# the chart uses (2y displayed + ~1y of history so the 150-day MA overlay is defined from the first
+# visible day); the UI never labels a "3y" button.
+_RANGE_DAYS = {"1m": 31, "6m": 183, "1y": 366, "2y": 731, "3y": 1096}
 _DEFAULT_RANGE = "2y"
 
 
@@ -53,6 +56,24 @@ class PricesResult:
     range: str
     rows: list[PriceRowData]
     filings: list[FilingMarkerData]
+
+
+def latest_close_map(session: Session) -> dict[int, tuple[Decimal, date]]:
+    """Latest stored close + its trading date per company, resolved independently, in one query.
+
+    GROUP BY + join (not a Postgres-only DISTINCT ON) so this stays portable to SQLite unit tests,
+    matching fiscal.latest_reported_fiscal_year_map's approach.
+    """
+    latest_dates = (
+        select(Price.cik, func.max(Price.date).label("max_date")).group_by(Price.cik).subquery()
+    )
+    rows = session.execute(
+        select(Price.cik, Price.date, Price.close).join(
+            latest_dates,
+            (Price.cik == latest_dates.c.cik) & (Price.date == latest_dates.c.max_date),
+        )
+    ).all()
+    return {cik: (close, d) for cik, d, close in rows}
 
 
 def get_prices(session: Session, ticker: str, range_: str = _DEFAULT_RANGE) -> PricesResult | None:

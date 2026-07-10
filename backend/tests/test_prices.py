@@ -23,6 +23,8 @@ def test_get_prices_rows_and_markers(db_session: Session) -> None:
     assert result.rows[-1].close == 179.0 and result.rows[-1].date == datetime.date(2026, 6, 30)
     assert len(result.filings) == 3  # AAPL FY2023-2025 10-Ks
     assert all(marker.form == "10-K" for marker in result.filings)
+    # Volume rides on every row per the frozen PriceRow contract (the chart plots it).
+    assert all(isinstance(r.volume, int) and r.volume > 0 for r in result.rows)
 
 
 def test_get_prices_range_window(db_session: Session) -> None:
@@ -45,6 +47,31 @@ def test_get_prices_range_window(db_session: Session) -> None:
     assert one_month is not None and two_year is not None
     assert all(r.date >= datetime.date(2026, 5, 30) for r in one_month.rows)  # old row excluded
     assert any(r.date == datetime.date(2025, 5, 1) for r in two_year.rows)  # old row included
+
+
+def test_get_prices_3y_window_reaches_past_2y(db_session: Session) -> None:
+    # "3y" is the chart's fetch window (2y shown + ~1y MA warmup): it must reach a row that the 2y
+    # window excludes. 2023-08-01 is inside 3y but outside 2y relative to max date 2026-06-30.
+    warmup = datetime.date(2023, 8, 1)
+    db_session.add(
+        Price(
+            cik=320193,
+            date=warmup,
+            open_=D("1"),
+            high=D("1"),
+            low=D("1"),
+            close=D("1"),
+            volume=1,
+            source="stooq",
+        )
+    )
+    db_session.commit()
+    two_year = prices.get_prices(db_session, "AAPL", "2y")
+    three_year = prices.get_prices(db_session, "AAPL", "3y")
+    assert two_year is not None and three_year is not None
+    assert three_year.range == "3y"
+    assert not any(r.date == warmup for r in two_year.rows)  # excluded by 2y
+    assert any(r.date == warmup for r in three_year.rows)  # included by 3y warmup
 
 
 def test_get_prices_invalid_range_defaults_to_2y(db_session: Session) -> None:

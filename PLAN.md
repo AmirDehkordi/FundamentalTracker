@@ -242,6 +242,7 @@ Entries marked ⚡ record pushback raised during planning; several were settled 
 | 15 | Evals in CI | yes / committed evidence | Out of CI (live key); committed last-run results + CI-safe structure test |
 | 16 | ⚡ CI matrix | ubuntu-only / 3 OS | Challenged as gold-plating. Kept: mac/windows run the unit suite only (cheap, evidences pathlib discipline); explicitly first in the cut order |
 | 17 | ⚡ ETN operating income | omit for ETN / derive from components | Discovered in planning verification: ETN stopped tagging OperatingIncomeLoss after FY2019. Derive revenue − COGS − SG&A − R&D with `derived:` provenance; None-with-reason if components missing. Omitting would hole two required metrics for one of five names |
+| 18 | Own metrics revisit | keep operating leverage / replace with capex intensity | Considered operating leverage, replaced with capex intensity — more decision-relevant for this universe in the current AI capex cycle and causally paired with the FCF-quality metric (rising capex intensity is the mechanical driver of FCF-margin compression). `capex_intensity` + `reinvestment_ratio` (capex ÷ CFO), same zero-new-ingestion bar as the metric they replace |
 
 ## 13. Risks and mitigations
 

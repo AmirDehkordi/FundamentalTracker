@@ -30,8 +30,8 @@ _CLIENT_TIMEOUT = httpx.Timeout(55.0, connect=5.0)  # exceeds the server's 45s w
 _FOOTNOTE = (
     "Tokens = prompt+completion summed across every LLM call of the request "
     "(from the X-Tracker-*-Tokens response headers); `n/a` means the provider omitted usage. "
-    "Latency is client-side wall-clock. T=tools, Decl=declined, Cite=citation source types, "
-    "Rgx=answer_regex; ✓ pass, ✗ fail, – not asserted."
+    "Latency is client-side wall-clock. T=tools, Decl=declined/kind/followups, "
+    "Cite=citation source types + items, Rgx=answer_regex; ✓ pass, ✗ fail, – not asserted."
 )
 
 
@@ -41,8 +41,11 @@ class Expected:
     tools_all_of: list[str] | None = None
     declined: bool | None = None
     citation_source_types: list[str] | None = None
+    citation_items_any_of: list[str] | None = None
     answer_regex: str | None = None
     decline_reason_contains: str | None = None
+    kind: str | None = None
+    suggested_followups_min: int | None = None
 
 
 @dataclass(frozen=True)
@@ -91,8 +94,11 @@ def load_cases(path: Path) -> list[Case]:
                     tools_all_of=exp.get("tools_all_of"),
                     declined=exp.get("declined"),
                     citation_source_types=exp.get("citation_source_types"),
+                    citation_items_any_of=exp.get("citation_items_any_of"),
                     answer_regex=exp.get("answer_regex"),
                     decline_reason_contains=exp.get("decline_reason_contains"),
+                    kind=exp.get("kind"),
+                    suggested_followups_min=exp.get("suggested_followups_min"),
                 ),
             )
         )
@@ -102,10 +108,14 @@ def load_cases(path: Path) -> list[Case]:
 def evaluate(case: Case, body: dict[str, Any]) -> list[Check]:
     """One Check per asserted expectation; absent expectations are skipped, not counted."""
     tools = {t.get("tool") for t in (body.get("trace") or [])}
-    srcs = {c.get("source_type") for c in (body.get("citations") or [])}
+    citations = body.get("citations") or []
+    srcs = {c.get("source_type") for c in citations}
+    items = {c.get("item") for c in citations}
     declined = bool(body.get("declined", False))
     answer = body.get("answer_md") or ""
     reason = body.get("decline_reason") or ""
+    kind = body.get("kind")
+    followups = body.get("suggested_followups") or []
     e = case.expected
     checks: list[Check] = []
 
@@ -127,12 +137,22 @@ def evaluate(case: Case, body: dict[str, Any]) -> list[Check]:
                 f"missing {missing} (got {sorted(srcs)})" if missing else "ok",
             )
         )
+    if e.citation_items_any_of is not None:
+        hit = [i for i in e.citation_items_any_of if i in items]
+        got = sorted(str(i) for i in items if i)
+        checks.append(Check("citation_items", bool(hit), "ok" if hit else f"got {got}"))
     if e.answer_regex is not None:
         ok = re.search(e.answer_regex, answer, re.IGNORECASE) is not None
         checks.append(Check("answer_regex", ok, "ok" if ok else "no match"))
     if e.decline_reason_contains is not None:
         ok = e.decline_reason_contains in reason
         checks.append(Check("decline_reason", ok, "ok" if ok else f"reason={reason!r}"))
+    if e.kind is not None:
+        ok = kind == e.kind
+        checks.append(Check("kind", ok, "ok" if ok else f"want {e.kind} got {kind}"))
+    if e.suggested_followups_min is not None:
+        ok = len(followups) >= e.suggested_followups_min
+        checks.append(Check("suggested_followups", ok, "ok" if ok else f"got {len(followups)}"))
     return checks
 
 
@@ -182,8 +202,8 @@ def _cells(r: Result, *, with_question: bool) -> list[str]:
         *lead,
         ",".join(t for t in r.tools_used if t) or "-",
         _sym(r.checks, {"tools_all_of", "tools_any_of"}),
-        _sym(r.checks, {"declined", "decline_reason"}),
-        _sym(r.checks, {"citations"}),
+        _sym(r.checks, {"declined", "decline_reason", "kind", "suggested_followups"}),
+        _sym(r.checks, {"citations", "citation_items"}),
         _sym(r.checks, {"answer_regex"}),
         f"{r.latency_s:.2f}",
         tokens,
@@ -234,11 +254,16 @@ def main() -> int:
     base_url = os.environ.get("EVALS_BASE_URL", "http://localhost:8000").rstrip("/")
     model = os.environ.get("EVALS_MODEL_LABEL") or os.environ.get("LLM_MODEL") or "unknown"
     allowed = int(os.environ.get("EVALS_ALLOWED_FAILURES", "0"))
+    # Space requests to stay under a provider's tokens-per-minute limit (reasoning models burn
+    # 6-20k tokens/question, so 14 back-to-back can 429). Default 0 keeps prior behaviour.
+    delay_s = float(os.environ.get("EVALS_DELAY_S", "0"))
     cases = load_cases(_QUESTIONS)
 
     results: list[Result] = []
     with httpx.Client(timeout=_CLIENT_TIMEOUT) as client:
-        for case in cases:
+        for i, case in enumerate(cases):
+            if i and delay_s:
+                time.sleep(delay_s)
             try:
                 body, latency, tokens = post_case(client, base_url, case)
             except (httpx.ConnectError, httpx.ConnectTimeout) as exc:

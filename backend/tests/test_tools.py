@@ -44,8 +44,8 @@ def test_get_fundamentals_last_n_and_concept_subset(rich_session: Session) -> No
     latest = out["rows"][-1]
     assert latest["fiscal_year"] == 2025
     assert set(latest["metrics"]) == {"revenue", "operating_margin"}
-    # yoy is subset by the SAME keys; operating_margin is not a yoy key, revenue is.
-    assert set(latest["yoy"]) == {"revenue"}
+    # yoy is subset by the SAME keys; both revenue (% change) and operating_margin (pp) have a cell.
+    assert set(latest["yoy"]) == {"revenue", "operating_margin"}
     assert latest["metrics"]["operating_margin"]["value"] == pytest.approx(0.325)
     assert latest["label"] == "FY2025 (ended 2025-12-31)"
 
@@ -179,6 +179,7 @@ def test_insider_no_data(db_session: Session) -> None:
     out = tools.get_insider_activity(db_session, tools.GetInsiderActivityArgs(ticker="NVDA"))
     assert out["has_data"] is False
     assert out["caveat"]
+    assert out["history_capped"] is False
     assert out["window_90d"]["buy_count"] == 0
     assert out["window_365d"]["sell_count"] == 0
 

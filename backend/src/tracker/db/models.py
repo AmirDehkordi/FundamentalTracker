@@ -13,6 +13,7 @@ from decimal import Decimal
 from sqlalchemy import (
     DDL,
     BigInteger,
+    Boolean,
     Date,
     ForeignKey,
     Index,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -50,6 +52,9 @@ class Company(Base):
     cik: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     ticker: Mapped[str] = mapped_column(Text, unique=True)
     name: Mapped[str] = mapped_column(Text)
+    # True when form4.py's per-company filing cap discarded older filings — real insider history may
+    # extend further back than what's in insider_transactions for this company.
+    form4_capped: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
 
 class Fundamental(Base):
@@ -132,6 +137,36 @@ class InsiderTransaction(Base):
     shares: Mapped[Decimal] = mapped_column(_SHARES)
     price: Mapped[Decimal | None] = mapped_column(_PRICE)
     value: Mapped[Decimal | None] = mapped_column(_MONEY)
+
+
+class RiskTheme(Base):
+    """One clustered risk-factor theme (agent/riskdiff_themes.py's cache): the deterministic Item 1A
+    diff (services/riskdiff.py) grouped into the top 3 added/removed themes per filing pair. Unlike
+    InsiderTransaction, both accessions ARE FK'd — these rows only ever originate from an already-
+    resolved FilingRefData, so the referenced filing is guaranteed to exist."""
+
+    __tablename__ = "risk_themes"
+    __table_args__ = (
+        UniqueConstraint("cik", "item", "latest_accession", "prior_accession", "direction", "rank"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cik: Mapped[int] = mapped_column(ForeignKey("companies.cik"))
+    item: Mapped[str] = mapped_column(Text)  # "1A"
+    latest_accession: Mapped[str] = mapped_column(ForeignKey("filings.accession"))
+    prior_accession: Mapped[str] = mapped_column(ForeignKey("filings.accession"))
+    direction: Mapped[str] = mapped_column(Text)  # "added" | "removed"
+    rank: Mapped[int] = mapped_column(Integer)  # 1..3, most material first
+    title: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text)
+    excerpt_indices: Mapped[str] = mapped_column(Text)  # CSV of 0-based indices, e.g. "2,5,9"
+    paragraph_count: Mapped[int] = mapped_column(Integer)
+    model: Mapped[str] = mapped_column(Text)
+    generated_at: Mapped[datetime.date] = mapped_column(Date)
+    # Hash of the (added, removed) excerpt lists this theme was generated from — detects the diff
+    # algorithm producing different excerpts for the same accession pair (cache staleness beyond
+    # what the natural key alone can express).
+    content_hash: Mapped[str] = mapped_column(Text)
 
 
 # ---------------------------------------------------------------------------

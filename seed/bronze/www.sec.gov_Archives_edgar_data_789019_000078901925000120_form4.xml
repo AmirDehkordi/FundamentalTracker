@@ -1,0 +1,160 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2025-04-23</periodOfReport>
+
+    <issuer>
+        <issuerCik>0000789019</issuerCik>
+        <issuerName>MICROSOFT CORP</issuerName>
+        <issuerTradingSymbol>MSFT</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001193119</rptOwnerCik>
+            <rptOwnerName>SMITH BRADFORD L</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O MICROSOFT CORPORATION</rptOwnerStreet1>
+            <rptOwnerStreet2>ONE MICROSOFT WAY</rptOwnerStreet2>
+            <rptOwnerCity>REDMOND</rptOwnerCity>
+            <rptOwnerState>WA</rptOwnerState>
+            <rptOwnerZipCode>98052-6399</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>Vice Chair and President</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-04-23</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>P</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>3842</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>377.4650</value>
+                    <footnoteId id="F1"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>455438.7633</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-04-30</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>30</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>390.5729</value>
+                    <footnoteId id="F2"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>455408.7633</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-05-05</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>3812</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>438.8197</value>
+                    <footnoteId id="F3"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>451596.7633</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">This acquisition was broker initiated without the reporting person's direction, approval, or knowledge.</footnote>
+        <footnote id="F2">This disposition was broker initiated without the reporting person's direction, approval, or knowledge.</footnote>
+        <footnote id="F3">On May 5, 2025, the shares remaining from the April 23, 2025 acquisition, after the April 30, 2025 disposition, were rescinded through the broker's error account. This disposition was broker initiated without the reporting person's direction, approval, or knowledge. This transaction was executed in multiple trades at prices ranging from $438.8169 to $438.8201. The price reported above reflects the weighted average price. The reporting person hereby undertakes upon request to the SEC staff, the issuer, or a security holder of the issuer, full information regarding the number of shares and prices at which the transactions were effected.</footnote>
+    </footnotes>
+
+    <remarks>This Form 4 is being filed late due to the fact that the reported transactions only recently came to the attention of the reporting person and the issuer. On April 23, 2025, trading restrictions applicable to the reporting person's account were inadvertently removed by the reporting person's broker during an account update. As a result, the account manager purchased and later sold shares of the issuer on behalf of the reporting person without the reporting person's direction, approval, or knowledge. On May 5, 2025, the broker reversed the transactions through the broker's error account and issued the gain on the transactions to the reporting person's account, again without the reporting person's direction, approval, or knowledge. These transactions are matchable under Section 16(b) of the Securities Exchange Act of 1934, as amended. Promptly upon being made aware of these transactions, the reporting person paid the issuer the full amount of profit realized in connection with the short-swing transaction.</remarks>
+
+    <ownerSignature>
+        <signatureName>Julia Stark, Attorney-in-Fact for Bradford L. Smith</signatureName>
+        <signatureDate>2025-12-12</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

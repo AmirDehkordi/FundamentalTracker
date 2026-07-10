@@ -74,11 +74,16 @@ def _insert(session: Session) -> Any:
     return pg_insert if session.get_bind().dialect.name == "postgresql" else sqlite_insert
 
 
-def _upsert_company(session: Session, cik: int, ticker: str, name: str) -> None:
-    stmt = _insert(session)(Company).values(cik=cik, ticker=ticker, name=name)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=[Company.cik], set_={"ticker": ticker, "name": name}
+def _upsert_company(
+    session: Session, cik: int, ticker: str, name: str, *, form4_capped: bool | None = None
+) -> None:
+    stmt = _insert(session)(Company).values(
+        cik=cik, ticker=ticker, name=name, form4_capped=bool(form4_capped)
     )
+    set_: dict[str, Any] = {"ticker": ticker, "name": name}
+    if form4_capped is not None:  # only the form4 lane knows this; other lanes must not clobber it
+        set_["form4_capped"] = form4_capped
+    stmt = stmt.on_conflict_do_update(index_elements=[Company.cik], set_=set_)
     session.execute(stmt)
 
 
@@ -296,11 +301,11 @@ def run_form4(from_cache: bool = False) -> list[Form4Summary]:
             cik, name = resolved
             try:
                 records = submissions.recent_filings(submissions.fetch(cik))
-                txns = form4.build_insider_txns(cik, records, as_of)
+                result = form4.build_insider_txns(cik, records, as_of)
                 with session.begin_nested():  # savepoint per company (see run_xbrl)
-                    _upsert_company(session, cik, ticker, name)
-                    _upsert_insiders(session, txns)
-                summaries.append(_summarize_form4(ticker, cik, txns))
+                    _upsert_company(session, cik, ticker, name, form4_capped=result.capped)
+                    _upsert_insiders(session, result.txns)
+                summaries.append(_summarize_form4(ticker, cik, result.txns))
             except Exception:
                 logger.exception("form4 ingest failed for %s (cik=%d); skipping", ticker, cik)
     return summaries
@@ -356,7 +361,7 @@ def _summarize_prices(ticker: str, cik: int, rows: list[prices.PriceRow]) -> Pri
 
 
 def run_prices(from_cache: bool = False) -> list[PriceSummary]:
-    """Ingest 2y of daily prices for the universe (yfinance, else stooq); return summaries."""
+    """Ingest 3y of daily prices for the universe (yfinance, else stooq); return summaries."""
     # The ticker->CIK map still flows through the EDGAR client, so honour --from-cache for it too.
     edgar_client.from_cache = from_cache
     tickers = get_settings().universe_tickers

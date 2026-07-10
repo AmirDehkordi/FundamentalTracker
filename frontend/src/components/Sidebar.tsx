@@ -1,5 +1,6 @@
-import { type KeyboardEvent, useEffect, useRef } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
 
+import logoUrl from "@/assets/schonfeld_page_logo.png";
 import { AsyncBoundary, isEmptyArray } from "@/components/AsyncBoundary";
 import { Freshness } from "@/components/Freshness";
 import { EmptyState } from "@/components/states";
@@ -12,12 +13,36 @@ import { useCompanies } from "@/api/queries";
 import { useSelection } from "@/state/selection";
 import { cn } from "@/lib/utils";
 import { formatFyBadge } from "@/lib/format";
+import { displayName } from "@/lib/tickers";
 
-function CompanyList({ companies }: { companies: CompanyOut[] }) {
+// The Schonfeld mark is a solid-charcoal PNG (invisible on dark surfaces); render it as a CSS mask so
+// it paints in --text-1 and stays crisp/theme-tintable. maskSize:contain preserves its aspect ratio.
+const LOGO_MASK = {
+  maskImage: `url(${logoUrl})`,
+  WebkitMaskImage: `url(${logoUrl})`,
+  maskSize: "contain",
+  WebkitMaskSize: "contain",
+  maskRepeat: "no-repeat",
+  WebkitMaskRepeat: "no-repeat",
+  maskPosition: "center",
+  WebkitMaskPosition: "center",
+} as const;
+
+function CompanyList({ companies: unsorted }: { companies: CompanyOut[] }) {
   const { ticker, setTicker } = useSelection();
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
 
-  // Seed the active company to the first (ticker-ordered) row once the list arrives.
+  // Ranked by market cap, largest first; companies with no computable market cap (missing price or
+  // shares_diluted) sort to the bottom rather than dropping out.
+  const companies = useMemo(
+    () =>
+      [...unsorted].sort(
+        (a, b) => (b.market_cap ?? -Infinity) - (a.market_cap ?? -Infinity),
+      ),
+    [unsorted],
+  );
+
+  // Seed the active company to the first (largest-market-cap) row once the list arrives.
   useEffect(() => {
     if (ticker == null && companies.length > 0) setTicker(companies[0].ticker);
   }, [companies, ticker, setTicker]);
@@ -93,7 +118,12 @@ function CompanyList({ companies }: { companies: CompanyOut[] }) {
             >
               {c.ticker}
             </span>
-            <span className="truncate text-xs text-fg-2">{c.name}</span>
+            <span
+              className="truncate text-[11px] text-fg-3"
+              title={displayName(c.ticker, c.name)}
+            >
+              {displayName(c.ticker, c.name)}
+            </span>
             <Badge
               variant="outline"
               className={cn(
@@ -131,7 +161,12 @@ export function Sidebar() {
       aria-label="Companies"
       className="flex h-full w-[232px] shrink-0 flex-col border-r border-border bg-surface-1"
     >
-      <div className="flex h-14 shrink-0 items-center px-4">
+      <div className="flex h-14 shrink-0 items-center gap-2 px-4">
+        <span
+          aria-hidden
+          className="h-5 w-[26px] shrink-0 bg-fg-1"
+          style={LOGO_MASK}
+        />
         <h1 className="text-sm font-semibold text-fg-1">
           Fundamentals Tracker
         </h1>

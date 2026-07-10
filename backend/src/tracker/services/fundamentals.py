@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from tracker.concepts import CANONICAL_CONCEPTS
 from tracker.db.models import Company, Fundamental
-from tracker.services import metrics
+from tracker.services import metrics, prices
 from tracker.services.fiscal import (
     ReportedFiscalYear,
     format_fy_label,
@@ -47,7 +47,8 @@ DERIVED_UNITS: dict[str, MetricUnit] = {
     "net_margin": "percent",
     "fcf_margin": "percent",
     "fcf_conversion": "ratio",
-    "operating_leverage": "ratio",
+    "capex_intensity": "percent",
+    "reinvestment_ratio": "ratio",
     "revenue_yoy": "percent",
 }
 
@@ -58,7 +59,13 @@ REASON_UNKNOWN_METRIC = "unknown metric"
 
 @dataclass(frozen=True, slots=True)
 class CompanyRef:
-    """Mirrors schemas.CompanyOut."""
+    """Mirrors schemas.CompanyOut.
+
+    `market_cap` = latest close x latest-reported-FY diluted shares (same approximation
+    metrics.build_ps uses for P/S — weighted-avg diluted shares, not period-end shares outstanding).
+    Only list_companies populates it (batched); get_company leaves it None so the per-ticker
+    resolver used by every panel route + agent tool call stays a single cheap query.
+    """
 
     cik: int
     ticker: str
@@ -66,6 +73,7 @@ class CompanyRef:
     latest_fiscal_year: int | None
     latest_period_end: date | None
     latest_fy_label: str | None
+    market_cap: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,13 +122,43 @@ class FundamentalsResult:
     rows: list[FyRow]
 
 
+def _latest_shares_diluted_map(
+    session: Session, latest: dict[int, ReportedFiscalYear]
+) -> dict[int, Decimal]:
+    """cik -> shares_diluted value at exactly that company's latest reported FY, in one query."""
+    if not latest:
+        return {}
+    rows = session.execute(
+        select(Fundamental.cik, Fundamental.fiscal_year, Fundamental.value).where(
+            Fundamental.concept == "shares_diluted", Fundamental.form == "10-K"
+        )
+    ).all()
+    result: dict[int, Decimal] = {}
+    for cik, fiscal_year, value in rows:
+        target = latest.get(cik)
+        if target is not None and target.fiscal_year == fiscal_year:
+            result[cik] = value
+    return result
+
+
 def list_companies(session: Session) -> list[CompanyRef]:
-    """The tracked universe, ascending by ticker, each with its latest reported FY (PLAN §5)."""
+    """The tracked universe, ascending by ticker, each with its latest reported FY (PLAN §5).
+
+    market_cap is None-with-no-reason (a CompanyOut field, not a MetricValue) whenever the latest
+    reported FY has no stored price or no shares_diluted — same missing-input cases build_ps hits.
+    """
     companies = session.scalars(select(Company).order_by(Company.ticker)).all()
     latest = latest_reported_fiscal_year_map(session)
+    shares = _latest_shares_diluted_map(session, latest)
+    closes = prices.latest_close_map(session)
     result: list[CompanyRef] = []
     for c in companies:
         fy = latest.get(c.cik)
+        close = closes.get(c.cik)
+        share_count = shares.get(c.cik)
+        market_cap = (
+            close[0] * share_count if close is not None and share_count is not None else None
+        )
         result.append(
             CompanyRef(
                 cik=c.cik,
@@ -129,6 +167,7 @@ def list_companies(session: Session) -> list[CompanyRef]:
                 latest_fiscal_year=fy.fiscal_year if fy else None,
                 latest_period_end=fy.period_end if fy else None,
                 latest_fy_label=fy.label if fy else None,
+                market_cap=market_cap,
             )
         )
     return result
@@ -238,13 +277,11 @@ def compute_metric(
         cfo = _concept_value(facts, "cfo")
         capex = _concept_value(facts, "capex")
         return metrics.build_fcf_conversion(cfo, capex, _concept_value(facts, "net_income"))
-    if metric_key == "operating_leverage":
-        prior = index.get(reported.fiscal_year - 1)
-        prior_oi = _concept_value(prior, "operating_income") if prior else None
-        prior_rev = _concept_value(prior, "revenue") if prior else None
-        return metrics.build_operating_leverage(
-            _concept_value(facts, "operating_income"), prior_oi, rev, prior_rev
-        )
+    if metric_key == "capex_intensity":
+        return metrics.build_capex_intensity(_concept_value(facts, "capex"), rev)
+    if metric_key == "reinvestment_ratio":
+        cfo = _concept_value(facts, "cfo")
+        return metrics.build_reinvestment_ratio(_concept_value(facts, "capex"), cfo)
     if metric_key == "revenue_yoy":
         # Same basis as the per-FY yoy["revenue"] cell, so compare and the matrix never disagree.
         prior = index.get(reported.fiscal_year - 1)
@@ -285,7 +322,7 @@ def _build_row(facts: FyFacts, prior: FyFacts | None) -> FyRow:
     capex = _concept_value(facts, "capex")
 
     # Insertion order = display order (KPI row + table, PLAN.md §9). fcf (a derived USD level) sits
-    # after capex; the five ratios follow the raw concepts.
+    # after capex; the seven ratios follow the raw concepts.
     metric_cells: dict[str, Metric] = {
         "revenue": _raw_cell(facts, "revenue"),
         "cost_of_revenue": _raw_cell(facts, "cost_of_revenue"),
@@ -302,33 +339,63 @@ def _build_row(facts: FyFacts, prior: FyFacts | None) -> FyRow:
         "net_margin": metrics.plain(metrics.net_margin(ni, rev), "percent"),
         "fcf_margin": metrics.plain(metrics.fcf_margin(cfo, capex, rev), "percent"),
         "fcf_conversion": metrics.build_fcf_conversion(cfo, capex, ni),
+        "capex_intensity": metrics.build_capex_intensity(capex, rev),
+        "reinvestment_ratio": metrics.build_reinvestment_ratio(capex, cfo),
     }
 
     def prior_value(concept: str) -> Decimal | None:
         return _concept_value(prior, concept) if prior else None
 
+    prev_rev = prior_value("revenue")
+    prev_oi = prior_value("operating_income")
+    prev_gp = prior_value("gross_profit")
+    prev_ni = prior_value("net_income")
+    prev_cfo = prior_value("cfo")
+    prev_capex = prior_value("capex")
+
     yoy_cells: dict[str, Metric] = {
-        "revenue": metrics.build_yoy(rev, prior_value("revenue")),
+        # Absolute levels + fcf: relative % change (build_yoy).
+        "revenue": metrics.build_yoy(rev, prev_rev),
         "cost_of_revenue": metrics.build_yoy(
             _concept_value(facts, "cost_of_revenue"), prior_value("cost_of_revenue")
         ),
-        "gross_profit": metrics.build_yoy(gp, prior_value("gross_profit")),
-        "operating_income": metrics.build_yoy(oi, prior_value("operating_income")),
-        "net_income": metrics.build_yoy(ni, prior_value("net_income")),
+        "gross_profit": metrics.build_yoy(gp, prev_gp),
+        "operating_income": metrics.build_yoy(oi, prev_oi),
+        "net_income": metrics.build_yoy(ni, prev_ni),
         "eps_diluted": metrics.build_yoy(
             _concept_value(facts, "eps_diluted"), prior_value("eps_diluted")
         ),
-        "cfo": metrics.build_yoy(cfo, prior_value("cfo")),
-        "capex": metrics.build_yoy(capex, prior_value("capex")),
+        "cfo": metrics.build_yoy(cfo, prev_cfo),
+        "capex": metrics.build_yoy(capex, prev_capex),
         "fcf": metrics.build_yoy(
             metrics.fcf_amount(cfo, capex),
-            metrics.fcf_amount(prior_value("cfo"), prior_value("capex")),
+            metrics.fcf_amount(prev_cfo, prev_capex),
         ),
         "shares_diluted": metrics.build_yoy(
             _concept_value(facts, "shares_diluted"), prior_value("shares_diluted")
         ),
-        "operating_leverage": metrics.build_operating_leverage(
-            oi, prior_value("operating_income"), rev, prior_value("revenue")
+        # Margins + fcf_conversion: percentage-POINT delta (curr margin − prior margin).
+        "gross_margin": metrics.build_margin_change(
+            metrics.gross_margin(gp, rev), metrics.gross_margin(prev_gp, prev_rev)
+        ),
+        "operating_margin": metrics.build_margin_change(
+            metrics.operating_margin(oi, rev), metrics.operating_margin(prev_oi, prev_rev)
+        ),
+        "net_margin": metrics.build_margin_change(
+            metrics.net_margin(ni, rev), metrics.net_margin(prev_ni, prev_rev)
+        ),
+        "fcf_margin": metrics.build_margin_change(
+            metrics.fcf_margin(cfo, capex, rev), metrics.fcf_margin(prev_cfo, prev_capex, prev_rev)
+        ),
+        "fcf_conversion": metrics.build_margin_change(
+            metrics.fcf_conversion(cfo, capex, ni),
+            metrics.fcf_conversion(prev_cfo, prev_capex, prev_ni),
+        ),
+        "capex_intensity": metrics.build_margin_change(
+            metrics.capex_intensity(capex, rev), metrics.capex_intensity(prev_capex, prev_rev)
+        ),
+        "reinvestment_ratio": metrics.build_margin_change(
+            metrics.reinvestment_ratio(capex, cfo), metrics.reinvestment_ratio(prev_capex, prev_cfo)
         ),
     }
 

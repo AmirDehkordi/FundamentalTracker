@@ -12,20 +12,22 @@ import {
 } from "@/components/overview/RangeSelector";
 import { EmptyState } from "@/components/states";
 import { Skeleton } from "@/components/ui/skeleton";
+import { withMovingAverage } from "@/lib/series";
 import { useSelection } from "@/state/selection";
 
 const DAY = 86_400_000;
-// Matches the backend's _RANGE_DAYS so the client window equals the server basis to the day.
+// Display windows (the query fetches a wider 3y so the 150-day MA is warmed before the first visible
+// day). 2Y caps at 731 days — NOT the full fetched 3y span — so its earliest ~1y stays invisible
+// warmup and the MA overlay is defined from the very first bar the user sees.
 const RANGE_DAYS: Record<RangeKey, number> = {
-  "1m": 31,
   "6m": 183,
   "1y": 366,
   "2y": 731,
-  max: Number.POSITIVE_INFINITY,
 };
 
-/** Slice the full 2y series back from the latest stored trading date (never "today"). */
-function sliceRows(rows: PriceRow[], range: RangeKey): PriceRow[] {
+/** Slice the full 3y series back from the latest stored trading date (never "today"). Generic so the
+ *  moving-average field survives the slice. */
+function sliceRows<T extends PriceRow>(rows: T[], range: RangeKey): T[] {
   if (rows.length === 0) return rows;
   const days = RANGE_DAYS[range];
   if (!Number.isFinite(days)) return rows;
@@ -57,7 +59,7 @@ function snapMarkers(
 /** Right ~5/12 panel: price line with a range selector and 10-K filing reference lines. */
 export function PriceChartPanel() {
   const { ticker } = useSelection();
-  const [range, setRange] = useState<RangeKey>("1y");
+  const [range, setRange] = useState<RangeKey>("2y");
   const query = usePrices(ticker);
 
   return (
@@ -68,13 +70,14 @@ export function PriceChartPanel() {
     >
       <AsyncBoundary
         query={query}
-        skeleton={<Skeleton className="h-[240px] w-full" />}
+        skeleton={<Skeleton className="h-[256px] w-full" />}
         errorTitle="Couldn't load prices"
         isEmpty={(d) => d.rows.length === 0}
         empty={<EmptyState>No price history for this range.</EmptyState>}
       >
         {(data) => {
-          const visible = sliceRows(data.rows, range);
+          // MA is computed over the FULL series first, then sliced, so a short range still shows it.
+          const visible = sliceRows(withMovingAverage(data.rows), range);
           if (visible.length === 0) {
             const known =
               PRICE_RANGES.find((r) => r.key === range)?.label ?? range;

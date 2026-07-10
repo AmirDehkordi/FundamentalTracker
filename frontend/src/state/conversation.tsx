@@ -27,6 +27,8 @@ interface ConversationValue {
   error: ApiError | null;
   send: (question: string) => void;
   retry: () => void;
+  /** Clear the local thread (the "New chat" affordance). */
+  reset: () => void;
 }
 
 const ConversationContext = createContext<ConversationValue | null>(null);
@@ -55,7 +57,7 @@ function newExchangeId(): string {
 export function ConversationProvider({ children }: { children: ReactNode }) {
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [pending, setPending] = useState<string | null>(null);
-  const { mutate, isPending, isError, error } = useAsk();
+  const { mutate, isPending, isError, error, reset: resetMutation } = useAsk();
   const lastReq = useRef<AskRequest | null>(null);
 
   const fire = useCallback(
@@ -90,6 +92,14 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
     fire(lastReq.current);
   }, [fire, isPending]);
 
+  const reset = useCallback(() => {
+    if (isPending) return; // don't drop an in-flight answer
+    setExchanges([]);
+    setPending(null);
+    lastReq.current = null;
+    resetMutation(); // clear any lingering error state
+  }, [isPending, resetMutation]);
+
   return (
     <ConversationContext.Provider
       value={{
@@ -100,6 +110,7 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
         error: error ?? null,
         send,
         retry,
+        reset,
       }}
     >
       {children}

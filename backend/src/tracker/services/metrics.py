@@ -1,11 +1,11 @@
 """Pure metric functions + the shared MetricValue-shaped cell (PLAN.md §6).
 
-Two layers live here. The *scalar* functions (`gross_margin`, `yoy`, `operating_leverage`, …) are
-pure math: they take `Decimal | None` off the ORM, do all arithmetic in `Decimal` (exact guards for
-the 1%-of-revenue and sign tests), return `float | None`, and NEVER raise on bad data. The *builder*
-functions (`build_pe`, `build_yoy`, …) wrap a scalar into a `Metric` and attach the correct
-None-with-reason string. Reason selection sits beside the guards, so a caller never misreads a
-`None` (a bare `float | None` can't say which of operating leverage's three guards tripped).
+Two layers live here. The *scalar* functions (`gross_margin`, `yoy`, `capex_intensity`,
+…) are pure math: they take `Decimal | None` off the ORM, do all arithmetic in `Decimal` (exact
+guards for sign/zero tests), return `float | None`, and NEVER raise on bad data.
+The *builder* functions (`build_pe`, `build_yoy`, …) wrap a scalar into a `Metric` and attach the
+right None-with-reason string. Reason selection sits beside the guards, so a caller never misreads a
+`None` (a bare `float | None` can't say whether an input was missing or a guard tripped).
 
 `Metric` mirrors `schemas.MetricValue` field-for-field; services never import the wire schema. P5
 maps a `Metric` to `MetricValue` via `MetricValue.model_validate(metric)` (APIModel is
@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Literal
 
 # Mirrors schemas.MetricUnit; a local Literal so services never import the frozen wire module.
-MetricUnit = Literal["USD", "USD/shares", "shares", "percent", "ratio"]
+MetricUnit = Literal["USD", "USD/shares", "shares", "percent", "ratio", "percentage_points"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,10 +40,8 @@ class Metric:
 REASON_PE_NEGATIVE_EPS = "n.m. — negative EPS"
 REASON_FCF_CONV_UNDEFINED = "undefined — net income ≤ 0"
 REASON_YOY_NONPOSITIVE_BASE = "sign change / non-positive base"
-# Operating leverage: PLAN.md §6 flags all three causes "n.m."; each keeps the specific cause.
-REASON_OPLEV_REVENUE_DECLINED = "n.m. — revenue declined"
-REASON_OPLEV_REVENUE_FLAT = "n.m. — revenue change < 1%"
-REASON_OPLEV_OPINC_SIGN_FLIP = "n.m. — operating income changed sign"
+REASON_CAPEX_INTENSITY_UNDEFINED = "undefined — revenue ≤ 0"
+REASON_REINVESTMENT_UNDEFINED = "undefined — CFO ≤ 0"
 
 # P/S share-basis caveat (decision log #11): diluted WAD shares understate buybacks.
 BASIS_NOTE_PS_WAD = "P/S uses diluted weighted-average shares; understates buybacks."
@@ -127,39 +125,21 @@ def eps_growth(eps_curr: Decimal | None, eps_prev: Decimal | None) -> float | No
     return yoy(eps_curr, eps_prev)
 
 
-def _oplev_reason(
-    oi_curr: Decimal, oi_prev: Decimal, rev_curr: Decimal, rev_prev: Decimal
-) -> str | None:
-    """Which operating-leverage guard trips (deterministic priority), or None if it holds."""
-    delta_rev = rev_curr - rev_prev
-    if delta_rev < 0:
-        return REASON_OPLEV_REVENUE_DECLINED
-    # Flat/blow-up: |ΔRev| < 1% of revenue. `delta_rev == 0` is caught here too (both revenues zero
-    # slips past the 1% test since the threshold is also 0) so the division below can never be by 0.
-    if delta_rev == 0 or abs(delta_rev) < abs(rev_curr) / 100:
-        return REASON_OPLEV_REVENUE_FLAT
-    if oi_curr * oi_prev < 0:  # operating income flipped sign — incremental margin is meaningless
-        return REASON_OPLEV_OPINC_SIGN_FLIP
-    return None
+def capex_intensity(capex: Decimal | None, revenue: Decimal | None) -> float | None:
+    """Capex / revenue — how much of each revenue dollar is reinvested in fixed assets/infra
+    (does the AI build-out outrun the cash the business generates). None if either input missing
+    or revenue <= 0."""
+    if capex is None or revenue is None or revenue <= 0:
+        return None
+    return float(capex / revenue)
 
 
-def operating_leverage(
-    op_income_curr: Decimal | None,
-    op_income_prev: Decimal | None,
-    revenue_curr: Decimal | None,
-    revenue_prev: Decimal | None,
-) -> float | None:
-    """ΔOperatingIncome / ΔRevenue, FY over FY. None if an input is missing or a guard trips."""
-    if (
-        op_income_curr is None
-        or op_income_prev is None
-        or revenue_curr is None
-        or revenue_prev is None
-    ):
+def reinvestment_ratio(capex: Decimal | None, cfo: Decimal | None) -> float | None:
+    """Capex / CFO — the share of operating cash flow consumed by capex (does the AI build-out
+    outrun the cash the business generates). None if either input missing or cfo <= 0."""
+    if capex is None or cfo is None or cfo <= 0:
         return None
-    if _oplev_reason(op_income_curr, op_income_prev, revenue_curr, revenue_prev) is not None:
-        return None
-    return float((op_income_curr - op_income_prev) / (revenue_curr - revenue_prev))
+    return float(capex / cfo)
 
 
 # ---------------------------------------------------------------------------
@@ -177,25 +157,38 @@ def build_yoy(curr: Decimal | None, prev: Decimal | None) -> Metric:
     return Metric(value=None, unit="percent", reason=REASON_YOY_NONPOSITIVE_BASE)
 
 
-def build_operating_leverage(
-    op_income_curr: Decimal | None,
-    op_income_prev: Decimal | None,
-    revenue_curr: Decimal | None,
-    revenue_prev: Decimal | None,
-) -> Metric:
-    """Operating-leverage cell (ratio). Missing input → None; else the tripped-guard reason."""
-    value = operating_leverage(op_income_curr, op_income_prev, revenue_curr, revenue_prev)
+def build_capex_intensity(capex: Decimal | None, revenue: Decimal | None) -> Metric:
+    """Capex-intensity cell (percent) = capex / revenue. Missing input → None; revenue ≤ 0 →
+    undefined reason."""
+    value = capex_intensity(capex, revenue)
+    if value is not None:
+        return Metric(value=value, unit="percent")
+    if capex is None or revenue is None:
+        return Metric(value=None, unit="percent")
+    return Metric(value=None, unit="percent", reason=REASON_CAPEX_INTENSITY_UNDEFINED)
+
+
+def build_reinvestment_ratio(capex: Decimal | None, cfo: Decimal | None) -> Metric:
+    """Reinvestment-ratio cell (ratio) = capex / CFO. Missing input → None; CFO ≤ 0 → undefined
+    reason."""
+    value = reinvestment_ratio(capex, cfo)
     if value is not None:
         return Metric(value=value, unit="ratio")
-    if (
-        op_income_curr is None
-        or op_income_prev is None
-        or revenue_curr is None
-        or revenue_prev is None
-    ):
+    if capex is None or cfo is None:
         return Metric(value=None, unit="ratio")
-    reason = _oplev_reason(op_income_curr, op_income_prev, revenue_curr, revenue_prev)
-    return Metric(value=None, unit="ratio", reason=reason)
+    return Metric(value=None, unit="ratio", reason=REASON_REINVESTMENT_UNDEFINED)
+
+
+def build_margin_change(curr: float | None, prev: float | None) -> Metric:
+    """Margin/ratio YoY as a PERCENTAGE-POINT delta (curr − prev), unit 'percentage_points'.
+
+    Distinct from build_yoy's relative % change: a margin going 40%→42% is +2.0 pp, not +5%.
+    Inputs are the already-computed margin floats (gross/operating/net/FCF margin, FCF conversion).
+    None if either margin is missing; no non-positive-base guard (a pp delta needs no such base).
+    """
+    if curr is None or prev is None:
+        return Metric(value=None, unit="percentage_points")
+    return Metric(value=curr - prev, unit="percentage_points")
 
 
 def build_fcf_conversion(

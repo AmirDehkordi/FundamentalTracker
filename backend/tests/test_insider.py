@@ -8,7 +8,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from tracker.api import schemas
-from tracker.db.models import InsiderTransaction
+from tracker.db.models import Company, InsiderTransaction
 from tracker.services import insider
 
 AAPL_CIK = 320193
@@ -46,6 +46,18 @@ def test_no_data(db_session: Session) -> None:
     assert result.window_90d.buy_count == 0
     assert result.window_90d.net_shares is None
     assert result.caveat == insider.INSIDER_CAVEAT
+    assert result.history_capped is False
+
+
+def test_history_capped_true_when_company_flagged(db_session: Session) -> None:
+    # Capped history matters most exactly when there's little/no data — flag must not be dropped.
+    company = db_session.get(Company, NVDA_CIK)
+    assert company is not None
+    company.form4_capped = True
+    db_session.commit()
+    result = insider.summary(db_session, NVDA_CIK)
+    assert result.has_data is False
+    assert result.history_capped is True
 
 
 def test_anchor_is_max_filed(db_session: Session) -> None:
@@ -90,6 +102,27 @@ def test_window_boundaries_inclusive(db_session: Session) -> None:
     assert result.window_365d.buy_count == 3  # d90 + d91 + d365 in, d366 out
 
 
+def test_windows_differ_when_data_spans_more_than_90_days(db_session: Session) -> None:
+    # Identical 90d/365d windows are correct only when every ingested Form 4 falls within 90 days
+    # of the max-filed anchor. Historically MSFT/GOOGL/ETN collapsed here — but that was the old
+    # ingestion cap (form4.py's _CAP_PER_COMPANY=40) silently truncating history, not a real absence
+    # of older trading; see Company.form4_capped / InsiderSummaryResult.history_capped for the fix.
+    # With data genuinely spanning >90 days (as AAPL/NVDA do), the two windows MUST differ.
+    _add(db_session, ANCHOR, "P", "100", "1000", "recent-buy")  # in both windows
+    _add(
+        db_session, ANCHOR - datetime.timedelta(days=200), "S", "50", "500", "old-sell"
+    )  # 365d only
+    db_session.commit()
+    result = insider.summary(db_session, AAPL_CIK, as_of=ANCHOR)
+    assert result.window_90d.buy_count == 1 and result.window_90d.sell_count == 0
+    assert result.window_365d.buy_count == 1 and result.window_365d.sell_count == 1
+    # Genuinely different windows: 365d captures the older sell that 90d excludes.
+    assert result.window_90d.sell_count != result.window_365d.sell_count
+    assert result.window_90d.net_shares != result.window_365d.net_shares  # 100 vs 50
+    assert result.window_90d.sell_notional is None
+    assert result.window_365d.sell_notional == 500.0
+
+
 def test_empty_short_window(db_session: Session) -> None:
     _add(db_session, ANCHOR - datetime.timedelta(days=200), "P", "10", "1", "d200")
     db_session.commit()
@@ -127,3 +160,4 @@ def test_insider_maps_to_wire_schema(db_session: Session) -> None:
     assert wire.window_90d.buy_count == 1
     assert wire.caveat == insider.INSIDER_CAVEAT
     assert wire.has_data is True
+    assert wire.history_capped is False

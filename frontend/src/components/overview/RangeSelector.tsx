@@ -1,16 +1,14 @@
 import { cn } from "@/lib/utils";
 
 export const PRICE_RANGES = [
-  { key: "1m", label: "1M" },
   { key: "6m", label: "6M" },
   { key: "1y", label: "1Y" },
   { key: "2y", label: "2Y" },
-  { key: "max", label: "MAX" },
 ] as const;
 
 export type RangeKey = (typeof PRICE_RANGES)[number]["key"];
 
-/** Segmented control for the price window. Data spans ~2y, so 2Y and MAX render the full history. */
+/** Segmented control for the price window. */
 export function RangeSelector({
   value,
   onChange,

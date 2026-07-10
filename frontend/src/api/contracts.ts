@@ -14,11 +14,16 @@ export type CompanyOut = components["schemas"]["CompanyOut"];
 export type ErrorOut = components["schemas"]["ErrorOut"];
 
 // --- B. Temporary mirrors (delete per-route as the backend registers response models) -----------
-export type MetricUnit = "USD" | "USD/shares" | "shares" | "percent" | "ratio";
+export type MetricUnit =
+  "USD" | "USD/shares" | "shares" | "percent" | "ratio" | "percentage_points"; // margin/ratio YoY as a pp delta (0.02 -> "+2.0pp"), NOT a % change
 
 // POST /api/ask — the grounded Q&A contract. Mirrors backend api/schemas.py (AskRequest / FinalAnswer
 // et al.). The endpoint always returns HTTP 200: failures/refusals come back as `declined` answers.
 export type CitationSource = "fundamental" | "filing" | "price" | "insider";
+
+// The four outcomes the UI styles differently. `clarification` asks one question back (not a refusal);
+// `error` is a loop/endpoint failure. `declined` stays true for {decline, error} (backward compat).
+export type AnswerKind = "answer" | "clarification" | "decline" | "error";
 
 export interface Message {
   role: "user" | "assistant";
@@ -44,12 +49,17 @@ export interface ToolTrace {
   tool: string;
   args: Record<string, unknown>;
   result_summary: string;
+  // Forward-looking: the current backend never sets this, so the "relaxed search" badge stays hidden
+  // until it does. Kept optional so the trace renders identically today and lights up later.
+  relaxed?: boolean;
 }
 
 export interface FinalAnswer {
   answer_md: string;
   citations: Citation[];
   trace: ToolTrace[];
+  kind: AnswerKind;
+  suggested_followups: string[]; // clickable chips: rephrasings (clarification) or in-scope asks (decline)
   declined: boolean;
   decline_reason?: string | null;
 }
@@ -89,8 +99,9 @@ export interface FreshnessOut {
 }
 
 // Fundamentals matrix. `rows` is chronological ascending; the UI takes the last N. `metrics` carries
-// raw concepts + fcf + margins + fcf_conversion; `yoy` carries raw-level YoY + operating_leverage.
-// (Margins & fcf_conversion have no yoy cell; operating_leverage lives only in yoy — one ratio per row.)
+// raw concepts + fcf + margins + fcf_conversion + capex_intensity + reinvestment_ratio; `yoy` carries
+// raw-level % YoY and the margins + fcf_conversion + capex_intensity + reinvestment_ratio as
+// percentage_points deltas.
 export interface FundamentalsRow {
   fiscal_year: number;
   period_end: string;
@@ -178,6 +189,26 @@ export interface RiskDiffOut {
   note?: string | null;
 }
 
+// Top-3 thematic clusters of the Item 1A diff per side (GET .../risk-diff/themes). Grounded only in
+// the deterministic diff; degraded (no pair) -> available:false, empties.
+export interface RiskThemeItem {
+  title: string; // <= 6 words
+  summary: string; // <= 30 words
+  paragraph_count: number;
+}
+
+export interface RiskDiffThemesOut {
+  ticker: string;
+  cik: number;
+  item: string;
+  latest: FilingRef | null;
+  prior: FilingRef | null;
+  added_themes: RiskThemeItem[];
+  removed_themes: RiskThemeItem[];
+  available: boolean;
+  note?: string | null;
+}
+
 // Form 4 window. Counts include unpriced rows; notional sums use priced rows only, so a notional can be
 // null (no priced transactions) even when a count is non-zero — that is an em dash, never $0.
 export interface InsiderWindow {
@@ -197,4 +228,5 @@ export interface InsiderSummaryOut {
   window_365d: InsiderWindow;
   caveat: string;
   has_data: boolean;
+  history_capped: boolean;
 }

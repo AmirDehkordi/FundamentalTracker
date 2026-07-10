@@ -1,0 +1,137 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2025-12-02</periodOfReport>
+
+    <issuer>
+        <issuerCik>0001652044</issuerCik>
+        <issuerName>Alphabet Inc.</issuerName>
+        <issuerTradingSymbol>GOOGL</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001738007</rptOwnerCik>
+            <rptOwnerName>O'Toole Amie Thuener</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>C/O ALPHABET INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>1600 AMPHITHEATRE PKWY</rptOwnerStreet2>
+            <rptOwnerCity>MOUNTAIN VIEW</rptOwnerCity>
+            <rptOwnerState>CA</rptOwnerState>
+            <rptOwnerZipCode>94043</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>false</isDirector>
+            <isOfficer>true</isOfficer>
+            <isTenPercentOwner>false</isTenPercentOwner>
+            <isOther>false</isOther>
+            <officerTitle>VP, Chief Accounting Officer</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>true</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Class C Capital Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2025-12-02</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>false</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>954</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>317</value>
+                    <footnoteId id="F1"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>11740</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Class A Common Stock</value>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>8940</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Class C Google Stock Units</value>
+                <footnoteId id="F2"/>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>12227</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+        <nonDerivativeHolding>
+            <securityTitle>
+                <value>Class C Google Stock Units</value>
+                <footnoteId id="F3"/>
+            </securityTitle>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>15160</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeHolding>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">The price reported in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $317 to $318, inclusive. The Reporting Person undertakes to provide to any security holder of Alphabet Inc. or the staff of the Securities and Exchange Commission, upon request, full information regarding the number of shares sold at each separate price within the ranges set forth in footnote (1).</footnote>
+        <footnote id="F2">Class C Google Stock Units (GSU) entitle the Reporting Person to receive one share of Alphabet Inc. Class C capital stock for each share underlying the GSU as GSU vests. 1/18th of the grant will vest on the 25th day of the month starting on March 25, 2025; 1/36th of the grant will vest on the 25th day of each month starting on March 25, 2026; and 1/36th of the grant will vest on March 1, 2027, subject to continued employment on each vesting date.</footnote>
+        <footnote id="F3">1/36th of the grant will vest on the 25th day of the month starting on March 25, 2025; and 1/36th of the grant will vest on 1st of the month starting April 1, 2027, subject to continued employment on each vesting date.</footnote>
+    </footnotes>
+
+    <remarks>Transaction reported in this Form 4 was effected pursuant to a Rule 10b5-1 Trading Plan adopted by the Reporting Person on May 23, 2025.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Fadillah Badar as Attorney-in-Fact for Amie Thuener O'Toole</signatureName>
+        <signatureDate>2025-12-02</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

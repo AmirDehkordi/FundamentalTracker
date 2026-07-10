@@ -33,13 +33,14 @@ logger = logging.getLogger("tracker.agent.api")
 
 # Hard wall-clock: the client is ALWAYS answered within this. Sized for a reasoning model (gpt-5.5):
 # a cross-modal or risk-diff question routes through several tool turns, each a few-second grounded
-# LLM call, so the honest worst case is ~30-40s. A thinking indicator covers the wait.
-_TIMEOUT_S = 45.0
+# LLM call, so the honest worst case is ~30-40s, plus headroom for slower runs. A thinking indicator
+# covers the wait.
+_TIMEOUT_S = 75.0
 # _SOFT_BUDGET_S makes the loop stop starting new turns, but does NOT hard-bound the worker: a turn
 # begun just under it can still run one bounded LLM call (llm._CALL_TIMEOUT_S), so the worker may
 # outlive the response by up to that call. That is a brief, bounded resource hold — the worker owns
 # and closes its own session (see module docstring), so it is never a cross-thread race or a leak.
-_SOFT_BUDGET_S = 38.0
+_SOFT_BUDGET_S = 68.0
 # AskRequest is frozen, so bound oversized input HERE to cap cost/latency (question chars, history
 # turns, and total question+history content so many small turns can't add up unbounded).
 _MAX_QUESTION_CHARS = 4000
@@ -69,6 +70,7 @@ async def ask(
     ):
         return schemas.FinalAnswer(
             answer_md="That request is too large to process. Please shorten it.",
+            kind="error",
             declined=True,
             decline_reason="request too large",
         )
@@ -103,6 +105,7 @@ async def ask(
     except TimeoutError:
         answer = schemas.FinalAnswer(
             answer_md="This question took too long to analyze. Please try a narrower question.",
+            kind="error",
             declined=True,
             decline_reason="timeout",
         )
@@ -110,6 +113,7 @@ async def ask(
         logger.exception("ask handler unexpected failure")
         answer = schemas.FinalAnswer(
             answer_md="Something went wrong analyzing this question.",
+            kind="error",
             declined=True,
             decline_reason="internal error",
         )

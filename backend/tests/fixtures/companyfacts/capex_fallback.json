@@ -1,0 +1,22 @@
+{
+  "cik": 1045810,
+  "entityName": "NVIDIA Corporation",
+  "facts": {
+    "us-gaap": {
+      "PaymentsToAcquirePropertyPlantAndEquipment": {
+        "units": {
+          "USD": [
+            {"start": "2011-01-31", "end": "2012-01-29", "val": 138735000, "accn": "0001045810-12-000013", "fy": 2011, "fp": "FY", "form": "10-K", "filed": "2012-03-13"}
+          ]
+        }
+      },
+      "PaymentsToAcquireProductiveAssets": {
+        "units": {
+          "USD": [
+            {"start": "2022-01-31", "end": "2023-01-29", "val": 1833000000, "accn": "0001045810-24-000029", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2024-02-21"}
+          ]
+        }
+      }
+    }
+  }
+}

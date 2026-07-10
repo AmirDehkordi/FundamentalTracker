@@ -36,9 +36,10 @@ jobs:
           enable-cache: true
       - run: uv python install 3.12
       - run: uv sync
-      # Enforce the coverage gates on every OS (mirrors the Makefile): 80 backend, 90 services.
+      # Enforce the coverage gates on every OS (mirrors the Makefile): 80 backend, 90 services, 85 agent.
       - run: uv run pytest -m "not integration" --cov=tracker --cov-report=term-missing --cov-fail-under=80
       - run: uv run pytest -m "not integration" --cov=tracker.services --cov-report=term-missing --cov-fail-under=90
+      - run: uv run pytest -m "not integration" --cov=tracker.agent --cov-report=term-missing --cov-fail-under=85
 
   integration:
     runs-on: ubuntu-latest

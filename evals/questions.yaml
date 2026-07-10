@@ -1,12 +1,15 @@
 # Eval set for POST /api/ask. Each case is sent independently (empty history). Cases brief-1..brief-6
-# are the case-study brief's six questions (verbatim) and must ALL pass; extra-7..extra-12 are added
+# are the case-study brief's six questions (verbatim) and must ALL pass; extra-7..extra-15 are added
 # coverage. Expectations are asserted only when present (see evals/run.py for semantics):
 #   tools_any_of            >= 1 of these tool names appears in the response trace
 #   tools_all_of            every one of these tool names appears in the trace
 #   declined                the response `declined` flag equals this
 #   citation_source_types   every listed source_type appears among the response citations (subset)
+#   citation_items_any_of   >= 1 citation carries one of these 10-K items (e.g. "7" = MD&A)
 #   answer_regex            re.search (case-insensitive) matches answer_md
 #   decline_reason_contains substring of decline_reason
+#   kind                    the response `kind` equals this (answer|clarification|decline|error)
+#   suggested_followups_min at least N suggested_followups are returned
 #
 # DO NOT weaken an expectation to make a run green — fix agent/prompts.py or agent/loop.py instead.
 
@@ -92,3 +95,34 @@
   expected:
     declined: true
     decline_reason_contains: "The tracker holds reported historicals only."
+
+# Regression test for the filing-search fix: a natural-language MD&A question must route to
+# search_filings (2-5 keywords, not the sentence) and cite Item 7 narrative — not apologise.
+- id: extra-13-nvda-mdna-themes
+  question: "What are the main themes in NVDA's MD&A?"
+  expected:
+    tools_all_of: [search_filings]
+    citation_source_types: [filing]
+    citation_items_any_of: ["7"]
+    declined: false
+
+# An ambiguous, under-specified question: the agent should ask ONE clarifying question rather than
+# guess, and offer answerable follow-ups (kind=clarification), not decline or fabricate.
+- id: extra-14-ambiguous-risk-metric
+  question: "what's the most risk metric?"
+  expected:
+    kind: clarification
+    declined: false
+    suggested_followups_min: 2
+
+# Own-metric coverage for capex intensity (replaced incremental operating margin): routes to a
+# fundamentals-backed tool (get_fundamentals per-company, or compare_companies across the universe —
+# both are grounded, FY-labelled answers to a two-company comparison; same tools_any_of pattern as
+# brief-5) and states FY-labelled, %/pp-formatted figures for both companies.
+- id: extra-15-capex-intensity-msft-vs-aapl
+  question: "How capital intensive is MSFT compared to AAPL?"
+  expected:
+    tools_any_of: [get_fundamentals, compare_companies]
+    citation_source_types: [fundamental]
+    answer_regex: '(?i)\b(?:FY|fiscal(?: year)?)\s?20\d{2}\b'
+    declined: false

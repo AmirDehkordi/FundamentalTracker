@@ -1,6 +1,6 @@
 """Daily prices: yfinance with a stooq fallback (sec-edgar skill §Prices).
 
-Per ticker: yfinance download (2y, daily, auto-adjusted). On ANY failure — an exception OR an empty
+Per ticker: yfinance download (3y, daily, auto-adjusted). On ANY failure — an exception OR an empty
 frame (yfinance often returns df.empty instead of raising) — fall back to the stooq CSV endpoint and
 record the source per row. The per-ticker cache is a NORMALISED canonical CSV
 (date,open,high,low,close,volume,source), deliberately a *silver* cache rather than raw bronze:
@@ -155,7 +155,9 @@ def read_cache_csv(cik: int, ticker: str) -> list[PriceRow]:
 
 
 def _yf_download(ticker: str) -> Any:
-    return yf.download(ticker, period="2y", interval="1d", auto_adjust=True, progress=False)
+    # 3y (not 2y): the dashboard displays up to 2y, but a 150-day moving-average overlay needs ~150
+    # trading days of history BEFORE the first visible day, so the extra year is MA warmup.
+    return yf.download(ticker, period="3y", interval="1d", auto_adjust=True, progress=False)
 
 
 def _fetch_stooq(cik: int, ticker: str) -> list[PriceRow]:
@@ -175,7 +177,7 @@ def fetch_prices(
     from_cache: bool = False,
     downloader: Callable[[str], Any] | None = None,
 ) -> list[PriceRow]:
-    """2y daily prices for one ticker: yfinance, else stooq; cached to a canonical CSV."""
+    """3y daily prices for one ticker (2y shown + 1y MA warmup): yfinance, else stooq; cached."""
     if from_cache:
         if not _cache_path(ticker).exists():
             logger.warning("--from-cache: no price cache for %s; skipping ticker", ticker)

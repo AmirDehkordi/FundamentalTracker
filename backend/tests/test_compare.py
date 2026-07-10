@@ -71,21 +71,13 @@ def test_compare_derived_gross_margin(rich_session: Session) -> None:
         ("net_margin", 0.28),
         ("fcf_margin", 0.25),
         ("fcf_conversion", 100 / 112),
+        ("capex_intensity", 0.05),
+        ("reinvestment_ratio", 1 / 6),
     ],
 )
 def test_compare_derived_metrics(rich_session: Session, metric: str, expected: float) -> None:
     result = compare.compare(rich_session, metric)
     assert _cell(result, "FULL").value.value == pytest.approx(expected, rel=1e-9)
-
-
-def test_compare_operating_leverage_mixed(rich_session: Session) -> None:
-    result = compare.compare(rich_session, "operating_leverage")
-    # ΔOpInc/ΔRev for FY2024->FY2025 = (130-105)/(400-350) = 0.50 — deliberately distinct from the
-    # point operating_margin (0.325) so this pins operating leverage, not the margin.
-    assert _cell(result, "FULL").value.value == pytest.approx(0.5, rel=1e-9)
-    # EDGECO's prior FY (2024) is a gap, so operating leverage is not computable — None, no reason.
-    edge = _cell(result, "EDGE")
-    assert edge.value.value is None and edge.value.reason is None
 
 
 def test_compare_revenue_yoy(rich_session: Session) -> None:
