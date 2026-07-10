@@ -20,4 +20,4 @@ RUN uv sync --frozen --no-dev
 COPY --from=frontend-build /app/frontend/dist frontend/dist
 
 EXPOSE 8000
-CMD ["uv", "run", "uvicorn", "tracker.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "--no-sync", "uvicorn", "tracker.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
