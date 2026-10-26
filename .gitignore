@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+node_modules/
+frontend/dist/
+.env
+.DS_Store
+*.log
+docs/img/raw/
+# make_seed.sh writes an atomic temp here before the mv; a SIGKILL could orphan one.
+seed/init/01_seed.sql.gz.*

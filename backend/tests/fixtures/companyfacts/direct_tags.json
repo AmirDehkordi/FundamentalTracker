@@ -1,0 +1,36 @@
+{
+  "cik": 9999002,
+  "entityName": "DirectTags Test Co.",
+  "facts": {
+    "us-gaap": {
+      "Revenues": {
+        "units": {
+          "USD": [
+            {"start": "2022-01-01", "end": "2022-12-31", "val": 400, "accn": "DT-2022", "fy": 2022, "fp": "FY", "form": "10-K", "filed": "2023-02-20"}
+          ]
+        }
+      },
+      "CostOfRevenue": {
+        "units": {
+          "USD": [
+            {"start": "2022-01-01", "end": "2022-12-31", "val": 250, "accn": "DT-2022", "fy": 2022, "fp": "FY", "form": "10-K", "filed": "2023-02-20"}
+          ]
+        }
+      },
+      "GrossProfit": {
+        "units": {
+          "USD": [
+            {"start": "2022-01-01", "end": "2022-12-31", "val": 145, "accn": "DT-2022", "fy": 2022, "fp": "FY", "form": "10-K", "filed": "2023-02-20"}
+          ]
+        }
+      },
+      "OperatingIncomeLoss": {
+        "units": {
+          "USD": [
+            {"start": "2022-01-01", "end": "2022-12-31", "val": 90, "accn": "DT-2022", "fy": 2022, "fp": "FY", "form": "10-K", "filed": "2023-02-20"}
+          ]
+        }
+      }
+    }
+  }
+}

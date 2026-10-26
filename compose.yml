@@ -1,0 +1,36 @@
+services:
+  app:
+    build: .
+    environment:
+      # In-network hostname; the .env value (localhost:5433) is for host-side `make run` only.
+      DATABASE_URL: postgresql+psycopg://tracker:tracker@db:5432/tracker
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL}
+      SEC_USER_AGENT: ${SEC_USER_AGENT}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tracker
+      POSTGRES_PASSWORD: tracker
+      POSTGRES_DB: tracker
+    ports:
+      - "5433:5432"  # 5433 on the host to avoid clashing with a local Postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracker -d tracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Committed pg_dump auto-restores on first boot (populated in P3).
+      - ./seed/init:/docker-entrypoint-initdb.d:ro
+
+volumes:
+  pgdata:

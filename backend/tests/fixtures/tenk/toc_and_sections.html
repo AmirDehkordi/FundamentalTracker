@@ -1,0 +1,51 @@
+<html>
+<head>
+<style>.hidden { display: none; } body { font-family: serif; }</style>
+<script>console.log("TOC_SCRIPT_SHOULD_BE_STRIPPED");</script>
+<title>Crafted 10-K fixture</title>
+</head>
+<body>
+
+<!-- Table of contents: the FIRST occurrence of every Item heading. Line-anchored but tiny spans. -->
+<p>Table of Contents</p>
+<p>Item 1. Business ................................ 3</p>
+<p>Item 1A. Risk Factors ................................ 5</p>
+<p>Item 1B. Unresolved Staff Comments ................................ 20</p>
+<p>Item 2. Properties ................................ 21</p>
+<p>Item 7. Management's Discussion and Analysis ................................ 30</p>
+<p>Item 7A. Quantitative and Qualitative Disclosures About Market Risk ................ 45</p>
+<p>Item 8. Financial Statements and Supplementary Data ................................ 46</p>
+
+<!-- Item 1. Business (short; not extracted, present so the doc looks real). -->
+<p>Item 1. Business</p>
+<p>The Company designs, manufactures, and sells a range of products and services worldwide.</p>
+
+<!-- Real Item 1A body: must be extracted (NOT the TOC line), &gt;= 2000 chars, bounded by Item 1B. -->
+<p>Item 1A. Risk Factors</p>
+<p>RISK_BODY_START. Adverse macroeconomic conditions, supply chain disruption, intense competition, and rapid technological change could materially and adversely affect the Company's business, results of operations, and financial condition. Adverse macroeconomic conditions, supply chain disruption, intense competition, and rapid technological change could materially and adversely affect the Company's business, results of operations, and financial condition. Adverse macroeconomic conditions, supply chain disruption, intense competition, and rapid technological change could materially and adversely affect the Company's business, results of operations, and financial condition.</p>
+<p>The Company depends on a limited number of suppliers and manufacturing partners, and disruptions could impair its ability to deliver products on time. The Company depends on a limited number of suppliers and manufacturing partners, and disruptions could impair its ability to deliver products on time. The Company depends on a limited number of suppliers and manufacturing partners, and disruptions could impair its ability to deliver products on time. The Company depends on a limited number of suppliers and manufacturing partners, and disruptions could impair its ability to deliver products on time.</p>
+<p>Cybersecurity incidents, data breaches, and privacy regulation may result in liability, reputational harm, and increased compliance cost. Cybersecurity incidents, data breaches, and privacy regulation may result in liability, reputational harm, and increased compliance cost. Cybersecurity incidents, data breaches, and privacy regulation may result in liability, reputational harm, and increased compliance cost.</p>
+<p>The Company is subject to extensive and evolving laws and regulations across the many jurisdictions in which it operates, and changes in tax, trade, antitrust, environmental, or privacy law could increase costs or restrict its business. The Company is subject to extensive and evolving laws and regulations across the many jurisdictions in which it operates, and changes in tax, trade, antitrust, environmental, or privacy law could increase costs or restrict its business. The Company is subject to extensive and evolving laws and regulations across the many jurisdictions in which it operates, and changes in tax, trade, antitrust, environmental, or privacy law could increase costs or restrict its business. RISK_BODY_END.</p>
+
+<p>Item 1B. Unresolved Staff Comments</p>
+<p>None.</p>
+
+<p>Item 2. Properties</p>
+<p>The Company leases and owns facilities used for research, manufacturing, and administration.</p>
+
+<!-- Real Item 7 body: contains a MID-LINE "see Item 7A" cross-reference that must NOT truncate it,
+     then MDNA_AFTER_XREF text, bounded by the real (line-anchored) Item 7A heading. -->
+<p>Item 7. Management's Discussion and Analysis of Financial Condition and Results of Operations</p>
+<p>MDNA_BODY_START. Revenue increased year over year driven by higher unit volumes and favorable pricing, while operating margin reflected disciplined cost management and continued investment in research and development. Revenue increased year over year driven by higher unit volumes and favorable pricing, while operating margin reflected disciplined cost management and continued investment in research and development. Revenue increased year over year driven by higher unit volumes and favorable pricing, while operating margin reflected disciplined cost management and continued investment in research and development.</p>
+<p>Operating expenses grew more slowly than revenue as the Company balanced reinvestment against efficiency, and effective tax rate was broadly stable year over year. Operating expenses grew more slowly than revenue as the Company balanced reinvestment against efficiency, and effective tax rate was broadly stable year over year. Operating expenses grew more slowly than revenue as the Company balanced reinvestment against efficiency, and effective tax rate was broadly stable year over year.</p>
+<p>Gross margin expanded modestly on a richer product mix, and operating expenses grew more slowly than revenue. Gross margin expanded modestly on a richer product mix, and operating expenses grew more slowly than revenue. Gross margin expanded modestly on a richer product mix, and operating expenses grew more slowly than revenue. For a discussion of the Company's exposure to interest rate and foreign currency risk, see Item 7A of this Annual Report on Form 10-K.</p>
+<p>MDNA_AFTER_XREF. Cash flow from operations remained strong and funded capital returns and reinvestment. Cash flow from operations remained strong and funded capital returns and reinvestment. Cash flow from operations remained strong and funded capital returns and reinvestment. Liquidity is expected to remain sufficient to meet operating and capital requirements for the foreseeable future, supported by cash on hand, marketable securities, and access to capital markets. MDNA_BODY_END.</p>
+
+<p>Item 7A. Quantitative and Qualitative Disclosures About Market Risk</p>
+<p>MARKET_RISK_MARKER. The Company is exposed to interest rate risk and foreign currency risk.</p>
+
+<p>Item 8. Financial Statements and Supplementary Data</p>
+<p>The consolidated financial statements are included beginning on the following page.</p>
+
+</body>
+</html>

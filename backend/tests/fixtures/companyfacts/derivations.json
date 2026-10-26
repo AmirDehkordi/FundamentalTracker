@@ -1,0 +1,55 @@
+{
+  "cik": 320193,
+  "entityName": "Apple Inc.",
+  "facts": {
+    "us-gaap": {
+      "Revenues": {
+        "units": {
+          "USD": [
+            {"start": "2022-10-01", "end": "2023-09-30", "val": 380000000000, "accn": "A-2023", "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2023-11-03"},
+            {"start": "2021-09-26", "end": "2022-09-24", "val": 350000000000, "accn": "A-2022", "fy": 2022, "fp": "FY", "form": "10-K", "filed": "2022-10-28"}
+          ]
+        }
+      },
+      "CostOfRevenue": {
+        "units": {
+          "USD": [
+            {"start": "2022-10-01", "end": "2023-09-30", "val": 210000000000, "accn": "A-2023", "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2023-11-03"},
+            {"start": "2021-09-26", "end": "2022-09-24", "val": 200000000000, "accn": "A-2022", "fy": 2022, "fp": "FY", "form": "10-K", "filed": "2022-10-28"}
+          ]
+        }
+      },
+      "SellingGeneralAndAdministrativeExpense": {
+        "units": {
+          "USD": [
+            {"start": "2022-10-01", "end": "2023-09-30", "val": 25000000000, "accn": "A-2023", "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2023-11-03"},
+            {"start": "2021-09-26", "end": "2022-09-24", "val": 24000000000, "accn": "A-2022", "fy": 2022, "fp": "FY", "form": "10-K", "filed": "2022-10-28"}
+          ]
+        }
+      },
+      "ResearchAndDevelopmentExpense": {
+        "units": {
+          "USD": [
+            {"start": "2022-10-01", "end": "2023-09-30", "val": 30000000000, "accn": "A-2023", "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2023-11-03"}
+          ]
+        }
+      },
+      "EarningsPerShareDiluted": {
+        "units": {
+          "USD/shares": [
+            {"start": "2022-10-01", "end": "2023-09-30", "val": 6.13, "accn": "A-2023", "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2023-11-03"},
+            {"start": "2021-09-26", "end": "2022-09-24", "val": 3.85, "accn": "A-2022", "fy": 2022, "fp": "FY", "form": "10-K", "filed": "2022-10-28"}
+          ]
+        }
+      },
+      "WeightedAverageNumberOfDilutedSharesOutstanding": {
+        "units": {
+          "shares": [
+            {"start": "2022-10-01", "end": "2023-09-30", "val": 16000000000, "accn": "A-2023", "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2023-11-03"},
+            {"start": "2021-09-26", "end": "2022-09-24", "val": 8000000000, "accn": "A-2022", "fy": 2022, "fp": "FY", "form": "10-K", "filed": "2022-10-28"}
+          ]
+        }
+      }
+    }
+  }
+}
